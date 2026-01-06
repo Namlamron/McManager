@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Server Manager</title>
+    <meta name="description" content="Create and manage Fabric servers easily">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Minecraft Server Manager</h1>
+            <p class="subtitle">Create and manage your Fabric servers with ease</p>
+        </header>
+
+        <main>
+            <!-- Create Server Section -->
+            <section class="card create-server">
+                <h2>🚀 Create New Server</h2>
+                <form id="createServerForm">
+                    <div class="form-group">
+                        <label for="serverName">Server Name</label>
+                        <input type="text" id="serverName" placeholder="My Awesome Server" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="serverType">Server Type</label>
+                        <select id="serverType">
+                            <option value="fabric">Fabric</option>
+                            <option value="forge">Forge</option>
+                        </select>
+                    </div>
+
+                    <div id="fabricInputs" class="form-row">
+                        <div class="form-group">
+                            <label for="minecraftVersion">Minecraft Version</label>
+                            <select id="minecraftVersion"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="loaderVersion">Fabric Loader</label>
+                            <select id="loaderVersion"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="installerVersion">Installer Version</label>
+                            <select id="installerVersion"></select>
+                        </div>
+                    </div>
+
+                    <div id="forgeInputs" class="form-row" style="display: none;">
+                        <div class="form-group">
+                            <label for="forgeMcVersion">Minecraft Version</label>
+                            <select id="forgeMcVersion"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="forgeVersion">Forge Version</label>
+                            <select id="forgeVersion"></select>
+                        </div>
+                    </div>
+
+                    <div id="statusMessage" class="status-message"></div>
+
+                    <button type="submit" id="createBtn" class="btn-primary">
+                        <span class="btn-text">Create Server</span>
+                        <span class="btn-loader spinner" style="display: none;"></span>
+                    </button>
+                </form>
+            </section>
+
+            <!-- Server List Section -->
+            <section class="card server-list-container">
+                <h2>Your Servers</h2>
+                <div id="serverList" class="server-list">
+                    <p class="loading-text">Loading your servers...</p>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Minecraft Server Manager v1.0 | Powered by Fabric</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

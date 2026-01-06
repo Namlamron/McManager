@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Manager</title>
+    <meta name="description" content="Manage your Minecraft server">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="server.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+</head>
+
+<body>
+    <div class="server-page">
+        <!-- Header -->
+        <header class="server-header">
+            <button class="back-btn" onclick="goBack()">← Back to Servers</button>
+            <h1 id="serverTitle">Server Manager</h1>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="server-layout">
+            <!-- Sidebar Navigation -->
+            <aside class="server-sidebar">
+                <nav class="tab-nav">
+                    <button class="tab-btn active" data-tab="console" onclick="switchTab('console')">
+                        💻 Console
+                    </button>
+                    <button class="tab-btn" data-tab="files" onclick="switchTab('files')">
+                        📁 File Management
+                    </button>
+                    <button class="tab-btn" data-tab="players" onclick="switchTab('players')">
+                        👥 Players
+                    </button>
+                    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">
+                        ⚙️ Settings
+                    </button>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="server-content">
+                <!-- Console Tab -->
+                <div class="tab-content active" id="console-tab">
+                    <div class="server-controls">
+                        <button id="startBtn" class="btn-success" onclick="startServer()">▶ Start</button>
+                        <button id="stopBtn" class="btn-danger" onclick="stopServer()">⏹ Stop</button>
+                        <button id="restartBtn" class="btn-warning" onclick="restartServer()">🔃 Restart</button>
+                        <span id="serverStatus" class="status-badge offline">OFFLINE</span>
+                    </div>
+                    <div id="terminal-container" class="terminal-container"></div>
+                </div>
+
+                <!-- File Management Tab -->
+                <div class="tab-content" id="files-tab">
+                    <!-- Breadcrumb Navigation -->
+                    <div class="breadcrumb" id="breadcrumb"></div>
+
+                    <!-- Toolbar -->
+                    <div class="toolbar">
+                        <button class="btn-secondary" onclick="createFolder()">📁 New Folder</button>
+                        <button class="btn-secondary" onclick="document.getElementById('fileUpload').click()">📤 Upload
+                            Files</button>
+                        <input type="file" id="fileUpload" multiple style="display: none;"
+                            onchange="uploadFiles(event)">
+                    </div>
+
+                    <!-- File Browser -->
+                    <div class="file-browser" id="fileBrowser">
+                        <p class="loading-text">Loading files...</p>
+                    </div>
+
+                    <!-- File Editor (hidden by default) -->
+                    <div class="file-editor" id="fileEditor" style="display: none;">
+                        <div class="editor-header">
+                            <h3 id="editorFileName">Editing File</h3>
+                            <div>
+                                <button class="btn-secondary" onclick="saveFile()">💾 Save</button>
+                                <button class="btn-secondary" onclick="closeEditor()">✖ Close</button>
+                            </div>
+                        </div>
+                        <textarea id="fileContent" class="code-editor"></textarea>
+                    </div>
+                </div>
+
+                <!-- Players Tab -->
+                <div class="tab-content" id="players-tab">
+                    <div class="players-layout">
+                        <div class="player-list-section">
+                            <h3>👑 Operators (Ops)</h3>
+                            <div class="input-group">
+                                <input type="text" id="opInput" placeholder="Player Name">
+                                <button class="btn-secondary" onclick="addPlayer('ops')">Add</button>
+                            </div>
+                            <ul id="opsList" class="player-list"></ul>
+                        </div>
+
+                        <div class="player-list-section">
+                            <h3>📜 Whitelist</h3>
+                            <div class="input-group">
+                                <input type="text" id="whitelistInput" placeholder="Player Name">
+                                <button class="btn-secondary" onclick="addPlayer('whitelist')">Add</button>
+                            </div>
+                            <ul id="whitelistList" class="player-list"></ul>
+                        </div>
+
+                        <div class="player-list-section">
+                            <h3>🚫 Banned Players</h3>
+                            <div class="input-group">
+                                <input type="text" id="bannedInput" placeholder="Player Name">
+                                <button class="btn-secondary" onclick="addPlayer('banned-players')">Ban</button>
+                            </div>
+                            <ul id="bannedList" class="player-list"></ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div class="tab-content" id="settings-tab">
+                    <h2>Server Configuration</h2>
+
+                    <!-- RAM Settings -->
+                    <section class="settings-section">
+                        <h3>🧠 Resource Allocation</h3>
+                        <div class="form-group">
+                            <label>Max RAM (Xmx)</label>
+                            <input type="text" id="ramMax" placeholder="e.g 4G, 4096M">
+                        </div>
+                        <div class="form-group">
+                            <label>Min RAM (Xms)</label>
+                            <input type="text" id="ramMin" placeholder="e.g 1G, 1024M">
+                        </div>
+                        <button class="btn-primary" onclick="saveConfig()">Save Allocations</button>
+                    </section>
+
+                    <!-- Server Properties -->
+                    <section class="settings-section">
+                        <h3>⚙️ Server Properties</h3>
+                        <div id="propertiesEditor" class="properties-grid">
+                            <!-- Populated by JS -->
+                        </div>
+                        <button class="btn-primary" onclick="saveProperties()">Save Properties</button>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+    <script src="server.js"></script>
+    <script src="js/manager.js"></script>
+</body>
+
+</html>

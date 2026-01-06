@@ -1,0 +1,773 @@
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const fs = require('fs-extra');
+const path = require('path');
+const { pipeline } = require('stream/promises');
+const multer = require('multer');
+const { exec, spawn } = require('child_process');
+
+const http = require('http');
+const { Server } = require("socket.io");
+const pty = require('node-pty');
+const os = require('os');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+// Ensure servers directory exists
+const SERVERS_DIR = path.join(__dirname, 'servers');
+fs.ensureDirSync(SERVERS_DIR);
+
+// Fabric Meta API base URL
+const FABRIC_API = 'https://meta.fabricmc.net/v2';
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const serverName = req.params.serverName;
+    const uploadPath = req.body.path || '';
+    const serverDir = path.join(SERVERS_DIR, serverName, uploadPath);
+    fs.ensureDirSync(serverDir);
+    cb(null, serverDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
+
+// Security: Validate path to prevent directory traversal
+function validatePath(serverName, relativePath = '') {
+  const serverDir = path.join(SERVERS_DIR, serverName);
+  const fullPath = path.join(serverDir, relativePath);
+  const normalizedPath = path.normalize(fullPath);
+
+  // Ensure the path is within the server directory
+  if (!normalizedPath.startsWith(serverDir)) {
+    throw new Error('Invalid path: Access denied');
+  }
+
+  return normalizedPath;
+}
+
+// API Routes
+
+// Get available Minecraft versions
+app.get('/api/versions/minecraft', async (req, res) => {
+  try {
+    const response = await axios.get(`${FABRIC_API}/versions/game`);
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching Minecraft versions:', error.message);
+    res.status(500).json({ error: 'Failed to fetch Minecraft versions' });
+  }
+});
+
+// Get available Fabric loader versions
+app.get('/api/versions/loader', async (req, res) => {
+  try {
+    const response = await axios.get(`${FABRIC_API}/versions/loader`);
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching loader versions:', error.message);
+    res.status(500).json({ error: 'Failed to fetch loader versions' });
+  }
+});
+
+// Get available installer versions
+app.get('/api/versions/installer', async (req, res) => {
+  try {
+    const response = await axios.get(`${FABRIC_API}/versions/installer`);
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching installer versions:', error.message);
+    res.status(500).json({ error: 'Failed to fetch installer versions' });
+  }
+});
+
+// Get available Forge versions
+app.get('/api/versions/forge_promos', async (req, res) => {
+  try {
+    const response = await axios.get('https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json');
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching Forge promos:', error.message);
+    res.status(500).json({ error: 'Failed to fetch Forge versions' });
+  }
+});
+
+// Create a new Server (Fabric or Forge)
+app.post('/api/server/create', async (req, res) => {
+  const { serverName, serverType, minecraftVersion, loaderVersion, installerVersion, forgeVersion } = req.body;
+
+  if (!serverName || !serverType) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  // Sanitize server name
+  const sanitizedName = serverName.replace(/[^a-zA-Z0-9-_]/g, '_');
+  const serverDir = path.join(SERVERS_DIR, sanitizedName);
+
+  if (await fs.pathExists(serverDir)) {
+    return res.status(409).json({ error: 'Server with this name already exists' });
+  }
+
+  try {
+    await fs.ensureDir(serverDir);
+
+    if (serverType === 'fabric') {
+      if (!minecraftVersion || !loaderVersion || !installerVersion) {
+        throw new Error('Missing Fabric versions');
+      }
+      // ... Fabric Logic ...
+      const downloadUrl = `${FABRIC_API}/versions/loader/${minecraftVersion}/${loaderVersion}/${installerVersion}/server/jar`;
+      const filename = `fabric-server-mc.${minecraftVersion}-loader.${loaderVersion}-launcher.${installerVersion}.jar`;
+      const filePath = path.join(serverDir, filename);
+
+      console.log(`Downloading Fabric JAR...`);
+      const response = await axios({ method: 'GET', url: downloadUrl, responseType: 'stream' });
+      const writer = fs.createWriteStream(filePath);
+      await pipeline(response.data, writer);
+
+      // Write config
+      await fs.writeJson(path.join(serverDir, 'mcmanager.json'), {
+        type: 'fabric',
+        javaArgs: '-Xmx2G -Xms1G',
+        jarFile: filename
+      });
+
+      res.json({ success: true, serverName: sanitizedName, path: serverDir, jarFile: filename });
+
+    } else if (serverType === 'forge') {
+      if (!minecraftVersion || !forgeVersion) {
+        throw new Error('Missing Forge versions');
+      }
+
+      // Construct Installer URL
+      // Format: https://maven.minecraftforge.net/net/minecraftforge/forge/{mc}-{forge}/forge-{mc}-{forge}-installer.jar
+      const longVersion = `${minecraftVersion}-${forgeVersion}`;
+      const downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${longVersion}/forge-${longVersion}-installer.jar`;
+      const installerName = `forge-installer.jar`;
+      const installerPath = path.join(serverDir, installerName);
+
+      console.log(`Downloading Forge Installer: ${downloadUrl}`);
+      const response = await axios({ method: 'GET', url: downloadUrl, responseType: 'stream' });
+      const writer = fs.createWriteStream(installerPath);
+      await pipeline(response.data, writer);
+
+      // User requested to run installer manually
+      console.log('Forge Installer downloaded. Skipping auto-install as per request.');
+
+      /* 
+      // Previously: Run installer
+      console.log('Running Forge Installer (Headless)...');
+      await new Promise((resolve, reject) => {
+          exec(`java -jar ${installerName} --installServer`, { cwd: serverDir }, (error, stdout, stderr) => {
+             // ...
+          });
+      });
+      // Cleanup installer
+      await fs.remove(installerPath);
+      */
+
+      // Identify Server JAR (Legacy) or create run script logic (Modern)
+      // Modern forge creates run.bat/run.sh and user_jvm_args.txt
+
+      await fs.writeJson(path.join(serverDir, 'mcmanager.json'), {
+        type: 'forge',
+        javaArgs: '-Xmx2G -Xms1G',
+        version: longVersion
+      });
+
+      res.json({ success: true, serverName: sanitizedName, path: serverDir, message: "Server created. Please run the Forge Installer manually." });
+    }
+
+  } catch (error) {
+    console.error('Error creating server:', error.message);
+    await fs.remove(serverDir).catch(console.error); // Cleanup
+    res.status(500).json({ error: 'Failed to create server', details: error.message });
+  }
+});
+
+// List all servers
+app.get('/api/servers', async (req, res) => {
+  try {
+    const servers = await fs.readdir(SERVERS_DIR);
+    const serverList = [];
+
+    for (const serverName of servers) {
+      const serverPath = path.join(SERVERS_DIR, serverName);
+      const stat = await fs.stat(serverPath);
+
+      if (stat.isDirectory()) {
+        const files = await fs.readdir(serverPath);
+        const jarFile = files.find(f => f.endsWith('.jar'));
+
+        serverList.push({
+          name: serverName,
+          path: serverPath,
+          jarFile: jarFile || null,
+          created: stat.birthtime
+        });
+      }
+    }
+
+    res.json(serverList);
+  } catch (error) {
+    console.error('Error listing servers:', error.message);
+    res.status(500).json({ error: 'Failed to list servers' });
+  }
+});
+
+// ===== File Management Endpoints =====
+
+// List files in a server directory
+app.get('/api/server/:serverName/files', async (req, res) => {
+  const { serverName } = req.params;
+  const relativePath = req.query.path || '';
+
+  try {
+    const fullPath = validatePath(serverName, relativePath);
+
+    // Check if path exists
+    if (!await fs.pathExists(fullPath)) {
+      return res.status(404).json({ error: 'Path not found' });
+    }
+
+    const stat = await fs.stat(fullPath);
+
+    // If it's a file, return file info
+    if (stat.isFile()) {
+      return res.json({
+        type: 'file',
+        name: path.basename(fullPath),
+        size: stat.size,
+        modified: stat.mtime
+      });
+    }
+
+    // If it's a directory, list contents
+    const items = await fs.readdir(fullPath);
+    const fileList = [];
+
+    for (const item of items) {
+      const itemPath = path.join(fullPath, item);
+      const itemStat = await fs.stat(itemPath);
+
+      fileList.push({
+        name: item,
+        type: itemStat.isDirectory() ? 'directory' : 'file',
+        size: itemStat.isFile() ? itemStat.size : null,
+        modified: itemStat.mtime
+      });
+    }
+
+    // Sort: directories first, then files, alphabetically
+    fileList.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({
+      path: relativePath,
+      items: fileList
+    });
+
+  } catch (error) {
+    console.error('Error listing files:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Read file contents
+app.get('/api/server/:serverName/file', async (req, res) => {
+  const { serverName } = req.params;
+  const relativePath = req.query.path || '';
+
+  try {
+    const fullPath = validatePath(serverName, relativePath);
+
+    if (!await fs.pathExists(fullPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const stat = await fs.stat(fullPath);
+    if (!stat.isFile()) {
+      return res.status(400).json({ error: 'Path is not a file' });
+    }
+
+    // Read file content
+    const content = await fs.readFile(fullPath, 'utf8');
+
+    res.json({
+      path: relativePath,
+      content: content,
+      size: stat.size,
+      modified: stat.mtime
+    });
+
+  } catch (error) {
+    console.error('Error reading file:', error.message);
+
+    // Check if it's a binary file
+    if (error.message.includes('invalid') || error.code === 'ERR_INVALID_ARG_TYPE') {
+      return res.status(400).json({ error: 'Cannot read binary file as text' });
+    }
+
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Write/update file contents
+app.put('/api/server/:serverName/file', async (req, res) => {
+  const { serverName } = req.params;
+  const { path: relativePath, content } = req.body;
+
+  if (!relativePath || content === undefined) {
+    return res.status(400).json({ error: 'Missing path or content' });
+  }
+
+  try {
+    const fullPath = validatePath(serverName, relativePath);
+
+    // Ensure parent directory exists
+    await fs.ensureDir(path.dirname(fullPath));
+
+    // Write file
+    await fs.writeFile(fullPath, content, 'utf8');
+
+    const stat = await fs.stat(fullPath);
+
+    res.json({
+      success: true,
+      path: relativePath,
+      size: stat.size,
+      modified: stat.mtime
+    });
+
+  } catch (error) {
+    console.error('Error writing file:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete file
+app.delete('/api/server/:serverName/file', async (req, res) => {
+  const { serverName } = req.params;
+  const relativePath = req.query.path || '';
+
+  try {
+    const fullPath = validatePath(serverName, relativePath);
+
+    if (!await fs.pathExists(fullPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    await fs.remove(fullPath);
+
+    res.json({
+      success: true,
+      path: relativePath
+    });
+
+  } catch (error) {
+    console.error('Error deleting file:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload files
+app.post('/api/server/:serverName/upload', upload.array('files'), async (req, res) => {
+  const { serverName } = req.params;
+
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const uploadedFiles = req.files.map(file => ({
+      name: file.filename,
+      size: file.size,
+      path: req.body.path || ''
+    }));
+
+    res.json({
+      success: true,
+      files: uploadedFiles
+    });
+
+  } catch (error) {
+    console.error('Error uploading files:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create directory
+app.post('/api/server/:serverName/directory', async (req, res) => {
+  const { serverName } = req.params;
+  const { path: relativePath } = req.body;
+
+  if (!relativePath) {
+    return res.status(400).json({ error: 'Missing path' });
+  }
+
+  try {
+    const fullPath = validatePath(serverName, relativePath);
+
+    await fs.ensureDir(fullPath);
+
+    res.json({
+      success: true,
+      path: relativePath
+    });
+
+  } catch (error) {
+    console.error('Error creating directory:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== Server Process Management =====
+
+const activeServers = new Map(); // serverName -> ptyProcess
+
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  socket.on('join-server', (serverName) => {
+    socket.join(serverName);
+    console.log(`User ${socket.id} joined room: ${serverName}`);
+
+    // Send current status if server is running
+    const serverProc = activeServers.get(serverName);
+    if (serverProc) {
+      socket.emit('server-status', 'online');
+    } else {
+      socket.emit('server-status', 'offline');
+    }
+  });
+
+  socket.on('server-start', async (serverName) => {
+    if (activeServers.has(serverName)) {
+      socket.emit('console-output', 'Server is already running.\r\n');
+      return;
+    }
+
+    const serverDir = path.join(SERVERS_DIR, serverName);
+    if (!fs.existsSync(serverDir)) {
+      socket.emit('console-output', 'Server directory not found.\r\n');
+      return;
+    }
+
+    // Find the JAR file
+    const files = await fs.readdir(serverDir);
+    const jarFile = files.find(f => f.endsWith('.jar'));
+
+    if (!jarFile) {
+      socket.emit('console-output', 'No server JAR file found.\r\n');
+      return;
+    }
+
+    const jarPath = path.join(serverDir, jarFile);
+    let shell = os.platform() === 'win32' ? 'java.exe' : 'java';
+
+    // Load config for memory settings & type
+    let javaArgs = ['-Xmx2G', '-Xms1G']; // Defaults
+    let serverType = 'fabric';
+    const configPath = path.join(serverDir, 'mcmanager.json');
+    try {
+      if (await fs.pathExists(configPath)) {
+        const config = await fs.readJson(configPath);
+        if (config.javaArgs) {
+          javaArgs = config.javaArgs.split(' ');
+        }
+        if (config.type) {
+          serverType = config.type;
+        }
+      }
+    } catch (err) {
+      console.error("Error reading config", err);
+    }
+
+    let args = [];
+
+    if (serverType === 'forge') {
+      // Check if we need to install first
+      const installerJar = files.find(f => f.endsWith('installer.jar'));
+      const hasRunBat = files.includes('run.bat') || files.includes('run.sh');
+      // Legacy detection (universal jar presence)
+      const hasLegacyJar = files.some(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
+
+      if (!hasRunBat && !hasLegacyJar && installerJar) {
+        io.to(serverName).emit('console-output', 'Forge Installer detected. Running installation first (this may take a while)...\r\n');
+        io.to(serverName).emit('server-status', 'installing'); // Custom status or just keep 'starting'
+
+        try {
+          await new Promise((resolve, reject) => {
+            const installerProcess = spawn('java', ['-jar', installerJar, '--installServer'], { cwd: serverDir });
+
+            installerProcess.stdout.on('data', (data) => {
+              io.to(serverName).emit('console-output', `[Installer] ${data.toString()}`);
+            });
+
+            installerProcess.stderr.on('data', (data) => {
+              io.to(serverName).emit('console-output', `[Installer Error] ${data.toString()}`);
+            });
+
+            installerProcess.on('close', (code) => {
+              if (code === 0) resolve();
+              else reject(new Error(`Installer exited with code ${code}`));
+            });
+          });
+
+          io.to(serverName).emit('console-output', 'Installation complete! Starting server...\r\n');
+          // Refresh file list to find the new run files
+          files = await fs.readdir(serverDir);
+
+        } catch (err) {
+          io.to(serverName).emit('console-output', `Installation failed: ${err.message}\r\n`);
+          io.to(serverName).emit('server-status', 'offline');
+          return;
+        }
+      }
+
+      // Modern Forge (1.17+) uses run.bat/run.sh which calls a library path
+      // Legacy Forge (1.12 etc) uses a universal jar
+
+      // Re-check files after potential install
+      const forgeJar = files.find(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
+
+      if (forgeJar) {
+        // Legacy way
+        args = [...javaArgs, '-jar', forgeJar, 'nogui'];
+      } else {
+        // Modern way: check for run.bat / run.sh
+        if (os.platform() === 'win32' && files.includes('run.bat')) {
+          // Inject memory args into user_jvm_args.txt
+          const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
+          try {
+            // always overwrite/create to ensure our settings apply
+            // Format note: arguments can be newlines. 
+            await fs.writeFile(jvmArgsFile, javaArgs.join('\n'));
+          } catch (e) {
+            console.error("Failed to write user_jvm_args.txt", e);
+          }
+
+          shell = 'cmd.exe';
+          args = ['/c', 'run.bat'];
+        } else if (files.includes('run.sh')) {
+          // Linux/Mac
+          const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
+          try {
+            await fs.writeFile(jvmArgsFile, javaArgs.join('\n'));
+          } catch (e) { }
+
+          shell = 'bash';
+          args = ['run.sh'];
+        } else {
+          io.to(serverName).emit('console-output', 'Could not detect Forge startup method (No jar/script found). Did install fail?\r\n');
+          io.to(serverName).emit('server-status', 'offline');
+          return;
+        }
+      }
+    } else {
+      // Fabric / Vanilla JAR
+      args = [...javaArgs, '-jar', jarFile, 'nogui'];
+    }
+
+    io.to(serverName).emit('server-status', 'starting');
+    io.to(serverName).emit('console-output', `\r\nStarting server: ${serverName}...\r\n`);
+    io.to(serverName).emit('console-output', `Executing: java ${args.join(' ')}\r\n\r\n`);
+
+    const ptyProcess = pty.spawn(shell, args, {
+      name: 'xterm-color',
+      cols: 80,
+      rows: 30,
+      cwd: serverDir,
+      env: process.env
+    });
+
+    activeServers.set(serverName, ptyProcess);
+    io.to(serverName).emit('server-status', 'online');
+
+    ptyProcess.onData((data) => {
+      io.to(serverName).emit('console-output', data);
+    });
+
+    ptyProcess.onExit((res) => {
+      activeServers.delete(serverName);
+      io.to(serverName).emit('console-output', `\r\nServer stopped with exit code: ${res.exitCode}\r\n`);
+      io.to(serverName).emit('server-status', 'offline');
+    });
+  });
+
+  socket.on('server-stop', (serverName) => {
+    const ptyProcess = activeServers.get(serverName);
+    if (ptyProcess) {
+      io.to(serverName).emit('console-output', '\r\nSending stop command...\r\n');
+      ptyProcess.write('stop\r');
+    } else {
+      socket.emit('console-output', 'Server is not running.\r\n');
+    }
+  });
+
+  socket.on('server-command', (data) => {
+    const { serverName, command } = data;
+    const ptyProcess = activeServers.get(serverName);
+    if (ptyProcess) {
+      ptyProcess.write(command);
+    }
+  });
+});
+
+// ===== Server Configuration & Player Management =====
+
+// Read Server Properties
+app.get('/api/server/:serverName/properties', async (req, res) => {
+  const { serverName } = req.params;
+  const propsPath = path.join(SERVERS_DIR, serverName, 'server.properties');
+
+  try {
+    if (!await fs.pathExists(propsPath)) {
+      // Return empty object or default if not found
+      return res.json({});
+    }
+    const content = await fs.readFile(propsPath, 'utf8');
+    const properties = {};
+
+    content.split('\n').forEach(line => {
+      line = line.trim();
+      if (line && !line.startsWith('#')) {
+        const [key, ...valueParts] = line.split('=');
+        if (key) {
+          properties[key.trim()] = valueParts.join('=').trim();
+        }
+      }
+    });
+
+    res.json(properties);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Save Server Properties
+app.post('/api/server/:serverName/properties', async (req, res) => {
+  const { serverName } = req.params;
+  const properties = req.body;
+  const propsPath = path.join(SERVERS_DIR, serverName, 'server.properties');
+
+  try {
+    // Read existing to preserve comments? 
+    // For simplicity, we just rewrite file with standard header + keys
+    // Ideally we'd parse AST but this is simple enough.
+
+    let content = '#Minecraft Server Properties\n#' + new Date().toISOString() + '\n';
+    for (const [key, value] of Object.entries(properties)) {
+      content += `${key}=${value}\n`;
+    }
+
+    await fs.writeFile(propsPath, content, 'utf8');
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Read McManager Config (RAM etc)
+app.get('/api/server/:serverName/config', async (req, res) => {
+  const { serverName } = req.params;
+  const configPath = path.join(SERVERS_DIR, serverName, 'mcmanager.json');
+
+  try {
+    if (await fs.pathExists(configPath)) {
+      const config = await fs.readJson(configPath);
+      res.json(config);
+    } else {
+      // Default config
+      res.json({ javaArgs: '-Xmx2G -Xms1G' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Save McManager Config
+app.post('/api/server/:serverName/config', async (req, res) => {
+  const { serverName } = req.params;
+  const config = req.body;
+  const configPath = path.join(SERVERS_DIR, serverName, 'mcmanager.json');
+
+  try {
+    await fs.writeJson(configPath, config);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Read Player JSON files (ops, whitelist, banned)
+app.get('/api/server/:serverName/json/:type', async (req, res) => {
+  const { serverName, type } = req.params;
+  // Basic validation
+  if (!['ops', 'whitelist', 'banned-players', 'banned-ips'].includes(type)) {
+    return res.status(400).json({ error: 'Invalid file type' });
+  }
+
+  const filePath = path.join(SERVERS_DIR, serverName, `${type}.json`);
+  try {
+    if (await fs.pathExists(filePath)) {
+      const data = await fs.readJson(filePath);
+      res.json(data);
+    } else {
+      res.json([]);
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Write Player JSON files
+app.post('/api/server/:serverName/json/:type', async (req, res) => {
+  const { serverName, type } = req.params;
+  const data = req.body;
+
+  if (!['ops', 'whitelist', 'banned-players', 'banned-ips'].includes(type)) {
+    return res.status(400).json({ error: 'Invalid file type' });
+  }
+
+  const filePath = path.join(SERVERS_DIR, serverName, `${type}.json`);
+  try {
+    await fs.writeJson(filePath, data, { spaces: 2 });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Start server
+server.listen(PORT, () => {
+  console.log(`\n🚀 Minecraft Server Manager running on port ${PORT}`);
+  console.log(`📡 Access the UI at: http://localhost:${PORT}`);
+  console.log(`🌐 Remote access: http://<your-ip>:${PORT}\n`);
+});

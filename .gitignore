@@ -5,6 +5,9 @@ package-lock.json
 # Server files
 servers/
 
+# Environment configuration
+.env
+
 # Logs
 *.log
 npm-debug.log*

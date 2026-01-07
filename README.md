@@ -42,13 +42,16 @@ The installer will:
 
 3. Start McManager:
 ```bash
-Start.bat
+McManager.bat
 ```
 
-That's it! The script automatically:
-- Detects if PM2 is installed
-- Starts in production mode (with PM2) or simple mode
-- Sets up auto-updates if PM2 is available
+**That's it!** Just double-click and it starts with PM2:
+- ✅ Auto-updates when you push to Git
+- ✅ Auto-restart on crashes
+- ✅ Shows live console output
+- ✅ Press Ctrl+C to stop viewing logs (server keeps running)
+
+If PM2 isn't installed, it will install it automatically or fall back to simple mode.
 
 4. Open your browser to `http://localhost:3000`
 
@@ -128,9 +131,11 @@ Create a `.env` file based on `.env.example` to customize:
 
 ```
 McManager/
+├── McManager.bat          # Main launcher (app-style menu)
 ├── Install.bat            # Automated installation script
-├── Start.bat              # One-click startup (auto-detects PM2)
+├── Start.bat              # Advanced startup (with PM2)
 ├── Stop.bat               # Stop all services
+├── Logs.bat               # View logs
 ├── server.js              # Main Express server
 ├── public/                # Frontend files
 ├── servers/               # Minecraft servers (not in Git)

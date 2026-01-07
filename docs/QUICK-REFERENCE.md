@@ -12,14 +12,25 @@ Automatically sets up everything you need!
 
 ## Starting McManager
 
-### Simple - Just Run This!
+### Simple - Just Double-Click!
+```powershell
+McManager.bat
+```
+
+Automatically uses PM2:
+- ✅ Auto-updates from Git
+- ✅ Auto-restart on crash
+- ✅ Shows live console
+- ✅ One-click startup
+
+Falls back to simple mode if PM2 not available.
+
+### Alternative - Manual PM2 Control
 ```powershell
 Start.bat
 ```
 
-The script automatically detects PM2 and chooses the best mode:
-- **With PM2:** Production mode with auto-updates
-- **Without PM2:** Simple development mode
+Same as McManager.bat but with more control options.
 
 ### Viewing Logs
 ```powershell

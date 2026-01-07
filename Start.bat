@@ -58,14 +58,29 @@ echo ========================================
 echo.
 echo Web Interface: http://localhost:3000
 echo.
-echo Useful Commands:
-echo   pm2 status      - View running processes
-echo   pm2 logs        - View live logs
-echo   pm2 restart all - Restart all services
-echo   pm2 stop all    - Stop all services
-echo.
 echo Auto-updates are ENABLED!
 echo Push to Git and your server will update automatically.
+echo.
+echo ========================================
+echo   Showing Live Logs...
+echo ========================================
+echo Press Ctrl+C to stop viewing logs
+echo (Server will keep running in background)
+echo.
+timeout /t 2 >nul
+
+REM Show logs - this keeps the window open
+pm2 logs
+
+REM If user stops logs, show menu
+echo.
+echo Logs stopped. Server is still running.
+echo.
+echo Useful Commands:
+echo   pm2 status      - View running processes
+echo   pm2 logs        - View live logs again
+echo   pm2 restart all - Restart all services
+echo   pm2 stop all    - Stop all services
 echo.
 pause
 exit /b 0
@@ -79,7 +94,11 @@ echo ========================================
 echo   McManager Restarted!
 echo ========================================
 echo.
-goto :show_status
+echo Showing live logs...
+echo Press Ctrl+C to stop viewing logs
+echo.
+timeout /t 2 >nul
+pm2 logs
 
 :show_status
 echo.

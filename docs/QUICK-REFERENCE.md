@@ -21,6 +21,13 @@ The script automatically detects PM2 and chooses the best mode:
 - **With PM2:** Production mode with auto-updates
 - **Without PM2:** Simple development mode
 
+### Viewing Logs
+```powershell
+Logs.bat
+# or
+pm2 logs
+```
+
 ### Stopping
 ```powershell
 Stop.bat

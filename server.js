@@ -12,6 +12,7 @@ const http = require('http');
 const { Server } = require("socket.io");
 const pty = require('node-pty');
 const os = require('os');
+const pidusage = require('pidusage');
 
 const app = express();
 const server = http.createServer(app);
@@ -545,6 +546,26 @@ const activeServers = new Map(); // serverName -> ptyProcess
 const scheduledRestarts = new Set(); // Servers waiting for 0 players to restart
 const restartPending = new Set(); // Servers currently stopping that should restart immediately
 
+// Monitoring Loop
+setInterval(async () => {
+  for (const [serverName, ptyProcess] of activeServers.entries()) {
+    try {
+      if (ptyProcess && ptyProcess.pid) {
+        const stats = await pidusage(ptyProcess.pid);
+        // Stats: { cpu, memory, pp, pid, ctime, elapsed, timestamp }
+        io.to(serverName).emit('server-stats', {
+          cpu: stats.cpu,
+          memory: stats.memory, // in bytes
+          timestamp: Date.now()
+        });
+      }
+    } catch (err) {
+      // Process likely dead or restarting
+      // console.error(`Stats error for ${serverName}:`, err.message);
+    }
+  }
+}, 2000);
+
 async function startServerProcess(serverName) {
   if (activeServers.has(serverName)) {
     io.to(serverName).emit('console-output', 'Server is already running.\r\n');
@@ -591,11 +612,13 @@ async function startServerProcess(serverName) {
   if (serverType === 'forge') {
     // Check if we need to install first
     const installerJar = files.find(f => f.endsWith('installer.jar'));
+    const shimJar = files.find(f => f.includes('-shim.jar'));
     const hasRunBat = files.includes('run.bat') || files.includes('run.sh');
     // Legacy detection (universal jar presence)
-    const hasLegacyJar = files.some(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
+    const hasLegacyJar = files.some(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar') && !f.includes('-shim.jar'));
 
-    if (!hasRunBat && !hasLegacyJar && installerJar) {
+    // If installer exists but no shim jar, run installer first
+    if (installerJar && !shimJar && !hasRunBat && !hasLegacyJar) {
       io.to(serverName).emit('console-output', 'Forge Installer detected. Running installation first (this may take a while)...\r\n');
       io.to(serverName).emit('server-status', 'installing');
 
@@ -618,7 +641,7 @@ async function startServerProcess(serverName) {
         });
 
         io.to(serverName).emit('console-output', 'Installation complete! Starting server...\r\n');
-        // Refresh file list to find the new run files
+        // Refresh file list to find the new shim jar
         files = await fs.readdir(serverDir);
 
       } catch (err) {
@@ -628,15 +651,19 @@ async function startServerProcess(serverName) {
       }
     }
 
-    // Modern Forge (1.17+) uses run.bat/run.sh which calls a library path
-    // Legacy Forge (1.12 etc) uses a universal jar
+    // Re-check for shim jar after potential install
+    const shimJarAfterInstall = files.find(f => f.includes('-shim.jar'));
+    const forgeJar = files.find(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar') && !f.includes('-shim.jar'));
 
-    // Re-check files after potential install
-    const forgeJar = files.find(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
-
-    if (forgeJar) {
-      // Legacy way
+    // Priority: shim.jar > legacy jar > run scripts
+    if (shimJarAfterInstall) {
+      // Modern Forge with shim jar
+      args = [...javaArgs, '-jar', shimJarAfterInstall, 'nogui'];
+      io.to(serverName).emit('console-output', `Using Forge shim: ${shimJarAfterInstall}\r\n`);
+    } else if (forgeJar) {
+      // Legacy Forge
       args = [...javaArgs, '-jar', forgeJar, 'nogui'];
+      io.to(serverName).emit('console-output', `Using legacy Forge jar: ${forgeJar}\r\n`);
     } else {
       // Modern way: check for run.bat / run.sh
       if (os.platform() === 'win32' && files.includes('run.bat')) {
@@ -651,6 +678,7 @@ async function startServerProcess(serverName) {
 
         shell = 'cmd.exe';
         args = ['/c', 'run.bat'];
+        io.to(serverName).emit('console-output', 'Using run.bat script\r\n');
       } else if (files.includes('run.sh')) {
         // Linux/Mac
         const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
@@ -660,6 +688,7 @@ async function startServerProcess(serverName) {
 
         shell = 'bash';
         args = ['run.sh'];
+        io.to(serverName).emit('console-output', 'Using run.sh script\r\n');
       } else {
         io.to(serverName).emit('console-output', 'Could not detect Forge startup method (No jar/script found). Did install fail?\r\n');
         io.to(serverName).emit('server-status', 'offline');

@@ -4,6 +4,13 @@ const socket = io();
 const urlParamsManager = new URLSearchParams(window.location.search);
 const serverNameManager = urlParamsManager.get('name');
 
+if (!serverNameManager) {
+    alert("Error: No server name provided in URL");
+    console.error("Missing server name query parameter");
+} else {
+    console.log("Manager initialized for server:", serverNameManager);
+}
+
 // Terminal Setup
 const term = new Terminal({
     cursorBlink: true,
@@ -31,14 +38,28 @@ const restartStatusBadge = document.getElementById('restartStatus');
 let isRestartScheduled = false;
 
 // Initialize Terminal
-// We need to wait for the tab to be visible for fit to work properly, 
-// usually. But since it is the default tab, it might be ok.
-term.open(termContainer);
-fitAddon.fit();
+try {
+    term.open(termContainer);
+    fitAddon.fit();
+    console.log("Terminal initialized");
+} catch (e) {
+    console.error("Failed to init terminal:", e);
+}
+
+try {
+    initChart(); // Initialize Chart
+    console.log("Chart initialized");
+} catch (e) {
+    console.error("Failed to init chart:", e);
+}
 
 // Handle Window Resize
 window.addEventListener('resize', () => {
-    fitAddon.fit();
+    try {
+        fitAddon.fit();
+    } catch (e) {
+        console.error("Fit error:", e);
+    }
 });
 
 // Socket Events
@@ -65,6 +86,101 @@ socket.on('schedule-status', (scheduled) => {
     updateScheduleUI();
 });
 
+// Resource Monitoring
+let resourceChart;
+const maxDataPoints = 30; // 60 seconds at 2s interval
+
+function initChart() {
+    const ctx = document.getElementById('resourceChart').getContext('2d');
+    Chart.defaults.color = '#ccc';
+    Chart.defaults.borderColor = '#444';
+
+    resourceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: Array(maxDataPoints).fill(''),
+            datasets: [
+                {
+                    label: 'CPU (%)',
+                    data: Array(maxDataPoints).fill(0),
+                    borderColor: '#ff6384', // Red/Pink
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'RAM (MB)',
+                    data: Array(maxDataPoints).fill(0),
+                    borderColor: '#36a2eb', // Blue
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    enabled: true
+                }
+            },
+            scales: {
+                x: {
+                    display: false
+                },
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    min: 0,
+                    max: 100,
+                    title: { display: true, text: 'CPU' }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    min: 0,
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                    title: { display: true, text: 'RAM (MB)' }
+                }
+            }
+        }
+    });
+}
+
+socket.on('server-stats', (stats) => {
+    if (!resourceChart) return;
+
+    const cpu = stats.cpu;
+    const ramMB = stats.memory / 1024 / 1024;
+
+    // Shift and Push
+    const datasets = resourceChart.data.datasets;
+
+    datasets[0].data.shift();
+    datasets[0].data.push(cpu);
+
+    datasets[1].data.shift();
+    datasets[1].data.push(ramMB);
+
+    resourceChart.update();
+});
+
 // Terminal Input
 term.onData((data) => {
     socket.emit('server-command', {
@@ -75,6 +191,8 @@ term.onData((data) => {
 
 // Controls (Attached to window for onclick in HTML)
 window.startServer = function () {
+    console.log("Start button clicked for:", serverNameManager);
+    if (!serverNameManager) return alert("No server selected");
     socket.emit('server-start', serverNameManager);
 };
 

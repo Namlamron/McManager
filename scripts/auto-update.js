@@ -15,11 +15,13 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 const path = require('path');
+const http = require('http'); // For API calls
 
 // Configuration
 const CHECK_INTERVAL = 60000; // Check every 60 seconds (1 minute)
 const REPO_PATH = path.join(__dirname, '..'); // Parent directory (project root)
 const BRANCH = 'main'; // Change if using different branch
+const API_URL = 'http://localhost:3000/api/system';
 
 let isUpdating = false;
 let lastCommitHash = null;
@@ -118,7 +120,52 @@ async function updateDependencies() {
  * Restart the main McManager server
  */
 async function restartServer() {
-    console.log('🔄 Restarting McManager server...');
+    console.log('🔄 Checking server status before restart...');
+
+    try {
+        // Query system status
+        const status = await new Promise((resolve, reject) => {
+            http.get(`${API_URL}/status`, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(JSON.parse(data)));
+            }).on('error', reject);
+        });
+
+        const activeServers = status.servers || [];
+        const busyServers = activeServers.filter(s => s.players > 0);
+
+        if (busyServers.length > 0) {
+            console.log(`⚠️  Cannot restart: ${busyServers.length} servers have players online.`);
+            console.log(`   - ${busyServers.map(s => s.name).join(', ')}`);
+            console.log('⏳ Skipping restart until servers are empty.');
+            return false; // Abort update
+        }
+
+        if (activeServers.length > 0) {
+            console.log(`✨ Servers running but empty (${activeServers.length}). Triggering graceful restart...`);
+
+            // Trigger graceful restart API
+            await new Promise((resolve, reject) => {
+                const req = http.request(`${API_URL}/restart`, { method: 'POST' }, (res) => {
+                    resolve();
+                });
+                req.on('error', reject);
+                req.end();
+            });
+
+            console.log('✅ Graceful restart triggered. Waiting for system to reboot...');
+            // Wait a bit to let the other process exit
+            await new Promise(r => setTimeout(r, 5000));
+            return true;
+        }
+
+    } catch (err) {
+        console.error('⚠️  Failed to query API (Server might be down):', err.message);
+        // If API is down, fall back to standard PM2 restart
+    }
+
+    console.log('🔄 Restarting McManager server via PM2...');
 
     // Check if PM2 is available
     const pm2Check = await runCommand('pm2 list');

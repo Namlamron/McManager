@@ -9,7 +9,7 @@ servers/
 .env
 
 # Standalone installer (configured per deployment)
-
+install-standalone.bat 
 
 # Logs
 *.log

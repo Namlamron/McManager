@@ -34,6 +34,26 @@ app.use(express.static('public'));
 const SERVERS_DIR = path.join(__dirname, 'servers');
 fs.ensureDirSync(SERVERS_DIR);
 
+// Recovery Check on Startup
+const RECOVERY_FILE = path.join(__dirname, 'restart-recovery.json');
+setTimeout(async () => {
+  if (await fs.pathExists(RECOVERY_FILE)) {
+    try {
+      console.log('🔄 Recovery file found. Restoring running servers...');
+      const recoveryData = await fs.readJson(RECOVERY_FILE);
+      await fs.remove(RECOVERY_FILE); // delete immediately to prevent loops
+
+      for (const serverName of recoveryData.servers) {
+        console.log(`🚀 Auto-starting recovered server: ${serverName}`);
+        await startServerProcess(serverName);
+      }
+    } catch (err) {
+      console.error('❌ Failed to recover servers:', err);
+    }
+  }
+}, 5000); // 5s delay to ensure socket/pty are ready
+
+
 // Fabric Meta API base URL
 const FABRIC_API = 'https://meta.fabricmc.net/v2';
 
@@ -539,20 +559,100 @@ app.post('/api/server/:serverName/directory', async (req, res) => {
   }
 });
 
+// ===== System Management APIs =====
+
+app.get('/api/system/status', (req, res) => {
+  const activeList = [];
+  for (const [name, pid] of activeServers.entries()) {
+    activeList.push({
+      name,
+      players: serverPlayerCounts.get(name) || 0
+    });
+  }
+  res.json({
+    running: activeServers.size > 0,
+    servers: activeList
+  });
+});
+
+app.post('/api/system/restart', async (req, res) => {
+  console.log('🔄 System restart requested via API');
+
+  // 1. Save state
+  const runningServers = Array.from(activeServers.keys());
+  if (runningServers.length > 0) {
+    try {
+      await fs.writeJson(RECOVERY_FILE, { servers: runningServers });
+      console.log(`💾 Saved ${runningServers.length} servers to recovery file.`);
+    } catch (err) {
+      console.error('❌ Failed to save recovery file:', err);
+      return res.status(500).json({ error: 'Failed to save state' });
+    }
+  }
+
+  // 2. Stop all servers
+  console.log('🛑 Stopping all servers for restart...');
+  for (const [name, ptyProc] of activeServers.entries()) {
+    try {
+      ptyProc.write('stop\r');
+    } catch (e) {
+      console.error(`Error stopping ${name}:`, e);
+    }
+  }
+
+  // 3. Send success response
+  res.json({ success: true, message: 'Restarting...' });
+
+  // 4. Exit process (give time for stop commands to send)
+  setTimeout(() => {
+    console.log('👋 Exiting process for PM2 restart.');
+    process.exit(0);
+  }, 2000);
+});
+
 // ===== Server Process Management =====
 
 const activeServers = new Map(); // serverName -> ptyProcess
 
 const scheduledRestarts = new Set(); // Servers waiting for 0 players to restart
 const restartPending = new Set(); // Servers currently stopping that should restart immediately
+const serverPlayerCounts = new Map(); // serverName -> playerCount
 
-// Monitoring Loop
+// Monitoring Loop - DISABLED (Causing WMIC errors on Windows)
+/*
 setInterval(async () => {
   for (const [serverName, ptyProcess] of activeServers.entries()) {
     try {
       if (ptyProcess && ptyProcess.pid) {
         const stats = await pidusage(ptyProcess.pid);
-        // Stats: { cpu, memory, pp, pid, ctime, elapsed, timestamp }
+
+        // Query Player Count
+        let players = 0;
+        try {
+          // Default port 25565, need to read from properties ideally, but assume default or query logic
+          // Reading port from properties every 2s is expensive. 
+          // For now, let's assume standard port or try to read it once.
+          // TO-DO: Implement accurate port reading. For now, try 25565.
+          // NOTE: Getting port efficiently is complex without caching. 
+          // Let's rely on basic query to localhost if possible, or skip if complex.
+          // Actually, let's look at updating the stats emission to include what we know.
+
+          // Simple ping?
+          // const status = await util.status('localhost', 25565); 
+          // This assumes one server on 25565. 
+          // If multiple servers, we need to know their ports.
+          // We'll skip complex player query for this iteration and rely on
+          // the user telling us if this is sufficient, or just defaulting to 0 for now
+          // if we can't easily get the port.
+
+          // WAIT: User requirement is "if empty". We need the count.
+          // We must read server.properties to get the port once on start.
+        } catch (e) { }
+
+        // UPDATE: Let's read the port when the server starts and cache it?
+        // For now, let's just stick to the requested structure changes.
+        // We will assume 0 players if we can't query, OR valid implementation below.
+
         io.to(serverName).emit('server-stats', {
           cpu: stats.cpu,
           memory: stats.memory, // in bytes
@@ -561,10 +661,30 @@ setInterval(async () => {
       }
     } catch (err) {
       // Process likely dead or restarting
-      // console.error(`Stats error for ${serverName}:`, err.message);
     }
   }
 }, 2000);
+*/
+
+// Separate Player Polling Loop (Every 10s is enough)
+setInterval(async () => {
+  for (const [serverName, ptyProcess] of activeServers.entries()) {
+    try {
+      // Read port from active server directory (cached ideally, but file read is fast enough for 10s)
+      const propsPath = path.join(SERVERS_DIR, serverName, 'server.properties');
+      if (await fs.pathExists(propsPath)) {
+        const content = await fs.readFile(propsPath, 'utf8');
+        const portLine = content.split('\n').find(l => l.startsWith('server-port='));
+        const port = portLine ? parseInt(portLine.split('=')[1]) : 25565;
+
+        const status = await util.status('localhost', port, { timeout: 2000 });
+        serverPlayerCounts.set(serverName, status.players.online);
+      }
+    } catch (e) {
+      serverPlayerCounts.set(serverName, 0); // Assume 0 if query failed (server starting/stopping)
+    }
+  }
+}, 10000);
 
 async function startServerProcess(serverName) {
   if (activeServers.has(serverName)) {

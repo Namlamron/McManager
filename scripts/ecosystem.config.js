@@ -1,9 +1,11 @@
+const path = require('path');
+
 module.exports = {
     apps: [
         {
             name: 'mcmanager',
-            script: '../server.js',
-            cwd: __dirname + '/..',
+            script: path.join(__dirname, '../server.js'),
+            cwd: path.join(__dirname, '..'),
             instances: 1,
             autorestart: true,
             watch: false,
@@ -19,7 +21,7 @@ module.exports = {
         },
         {
             name: 'mcmanager-updater',
-            script: './auto-update.js',
+            script: path.join(__dirname, 'auto-update.js'),
             cwd: __dirname,
             instances: 1,
             autorestart: true,

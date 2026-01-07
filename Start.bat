@@ -24,12 +24,12 @@ if %errorlevel% neq 0 (
 )
 
 REM Check if already running
-pm2 list | findstr "mcmanager" >nul 2>nul
+call pm2 list | findstr "mcmanager" >nul 2>nul
 if %errorlevel% equ 0 (
     echo McManager is already running!
     echo.
     echo Restarting and showing logs...
-    pm2 restart all
+    call pm2 restart all
     timeout /t 2 >nul
     goto :show_logs
 )
@@ -37,14 +37,14 @@ if %errorlevel% equ 0 (
 REM Start with PM2
 echo Starting with PM2 (auto-updates enabled)...
 echo.
-pm2 start scripts/ecosystem.config.js
+call pm2 start scripts/ecosystem.config.js
 if %errorlevel% neq 0 (
     echo.
     echo PM2 start failed. Trying simple mode...
     goto :simple_mode
 )
 
-pm2 save >nul 2>nul
+call pm2 save >nul 2>nul
 
 echo.
 echo ========================================
@@ -68,7 +68,7 @@ timeout /t 2 >nul
 
 :show_logs
 REM Show logs - keeps window open
-pm2 logs
+call pm2 logs
 
 REM If user stops logs
 echo.

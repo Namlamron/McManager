@@ -383,3 +383,157 @@
     border: 1px solid var(--border);
     overflow: hidden;
 }
+
+/* Drag and Drop */
+.file-item.drag-over {
+    background: rgba(139, 92, 246, 0.3);
+    border: 2px dashed var(--accent-primary);
+}
+
+/* NEW: Config File Grid & Editor */
+
+.file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.file-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.5rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.75rem;
+}
+
+.file-card:hover {
+    border-color: var(--accent-primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    background: rgba(139, 92, 246, 0.05);
+}
+
+.file-card i {
+    font-size: 2.5rem;
+    color: var(--accent-primary);
+    opacity: 0.8;
+}
+
+.file-card .filename {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.file-card .filesize {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Config Config Editor */
+.editor-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.config-kv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.25rem;
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+}
+
+.config-kv-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.config-kv-item label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-family: 'Consolas', monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.config-kv-item input,
+.config-kv-item select {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.35rem;
+    color: var(--text-primary);
+    font-family: 'Consolas', monospace;
+    font-size: 0.9rem;
+    width: 100%;
+    transition: border-color 0.2s;
+}
+
+.config-kv-item input:focus {
+    border-color: var(--accent-primary);
+    outline: none;
+}
+
+/* Raw Editor Fallback */
+.config-raw-editor {
+    width: 100%;
+    min-height: 400px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    font-family: 'Consolas', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+/* Breadcumb style in toolbar */
+.editor-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Update file card layout for badges */
+.file-card .file-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.file-card .folder-badge {
+    font-size: 0.75rem;
+    background: rgba(139, 92, 246, 0.15);
+    color: var(--accent-primary);
+    padding: 0.2rem 0.6rem;
+    border-radius: 1rem;
+    max-width: 90%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

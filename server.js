@@ -244,6 +244,7 @@ app.get('/api/servers', async (req, res) => {
 app.get('/api/server/:serverName/files', async (req, res) => {
   const { serverName } = req.params;
   const relativePath = req.query.path || '';
+  const recursive = req.query.recursive === 'true';
 
   try {
     const fullPath = validatePath(serverName, relativePath);
@@ -265,20 +266,59 @@ app.get('/api/server/:serverName/files', async (req, res) => {
       });
     }
 
-    // If it's a directory, list contents
-    const items = await fs.readdir(fullPath);
-    const fileList = [];
+    // Helper for recursive listing
+    async function getFilesRecursively(dir, base) {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      let results = [];
 
-    for (const item of items) {
-      const itemPath = path.join(fullPath, item);
-      const itemStat = await fs.stat(itemPath);
+      for (const entry of entries) {
+        const fullEntryPath = path.join(dir, entry.name);
+        const relativeEntryPath = path.join(base, entry.name);
 
-      fileList.push({
-        name: item,
-        type: itemStat.isDirectory() ? 'directory' : 'file',
-        size: itemStat.isFile() ? itemStat.size : null,
-        modified: itemStat.mtime
-      });
+        if (entry.isDirectory()) {
+          // Add the directory itself? Maybe not if we just want files for config view
+          // But for general file browser we might. 
+          // Current frontend "Config" view filters for files anyway.
+          results.push({
+            name: relativeEntryPath.replace(/\\/g, '/'), // Normalize for frontend
+            type: 'directory',
+            modified: new Date() // approximate
+          });
+
+          const subResults = await getFilesRecursively(fullEntryPath, relativeEntryPath);
+          results = results.concat(subResults);
+        } else {
+          const s = await fs.stat(fullEntryPath);
+          results.push({
+            name: relativeEntryPath.replace(/\\/g, '/'), // Return full relative path as "name" for simplicity, or split?
+            // Let's use name as the RELATIVE path from the query root.
+            type: 'file',
+            size: s.size,
+            modified: s.mtime
+          });
+        }
+      }
+      return results;
+    }
+
+    let fileList = [];
+
+    if (recursive) {
+      fileList = await getFilesRecursively(fullPath, '');
+    } else {
+      // Flat listing
+      const items = await fs.readdir(fullPath);
+      for (const item of items) {
+        const itemPath = path.join(fullPath, item);
+        const itemStat = await fs.stat(itemPath);
+
+        fileList.push({
+          name: item,
+          type: itemStat.isDirectory() ? 'directory' : 'file',
+          size: itemStat.isFile() ? itemStat.size : null,
+          modified: itemStat.mtime
+        });
+      }
     }
 
     // Sort: directories first, then files, alphabetically
@@ -447,6 +487,32 @@ app.delete('/api/server/:serverName', async (req, res) => {
   }
 });
 
+// Move file or directory
+app.post('/api/server/:serverName/move', async (req, res) => {
+  const { serverName } = req.params;
+  const { oldPath, newPath } = req.body;
+
+  try {
+    const fullOldPath = validatePath(serverName, oldPath);
+    const fullNewPath = validatePath(serverName, newPath);
+
+    if (!await fs.pathExists(fullOldPath)) {
+      return res.status(404).json({ error: 'Source file not found' });
+    }
+
+    if (await fs.pathExists(fullNewPath)) {
+      return res.status(400).json({ error: 'Destination already exists' });
+    }
+
+    await fs.move(fullOldPath, fullNewPath);
+
+    res.json({ success: true, oldPath, newPath });
+  } catch (error) {
+    console.error('Move error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create directory
 app.post('/api/server/:serverName/directory', async (req, res) => {
   const { serverName } = req.params;
@@ -476,6 +542,170 @@ app.post('/api/server/:serverName/directory', async (req, res) => {
 
 const activeServers = new Map(); // serverName -> ptyProcess
 
+const scheduledRestarts = new Set(); // Servers waiting for 0 players to restart
+const restartPending = new Set(); // Servers currently stopping that should restart immediately
+
+async function startServerProcess(serverName) {
+  if (activeServers.has(serverName)) {
+    io.to(serverName).emit('console-output', 'Server is already running.\r\n');
+    return;
+  }
+
+  const serverDir = path.join(SERVERS_DIR, serverName);
+  if (!fs.existsSync(serverDir)) {
+    io.to(serverName).emit('console-output', 'Server directory not found.\r\n');
+    return;
+  }
+
+  // Find the JAR file
+  let files = await fs.readdir(serverDir);
+  const jarFile = files.find(f => f.endsWith('.jar'));
+
+  if (!jarFile) {
+    io.to(serverName).emit('console-output', 'No server JAR file found.\r\n');
+    return;
+  }
+
+  let shell = os.platform() === 'win32' ? 'java.exe' : 'java';
+
+  // Load config for memory settings & type
+  let javaArgs = ['-Xmx2G', '-Xms1G']; // Defaults
+  let serverType = 'fabric';
+  const configPath = path.join(serverDir, 'mcmanager.json');
+  try {
+    if (await fs.pathExists(configPath)) {
+      const config = await fs.readJson(configPath);
+      if (config.javaArgs) {
+        javaArgs = config.javaArgs.split(' ');
+      }
+      if (config.type) {
+        serverType = config.type;
+      }
+    }
+  } catch (err) {
+    console.error("Error reading config", err);
+  }
+
+  let args = [];
+
+  if (serverType === 'forge') {
+    // Check if we need to install first
+    const installerJar = files.find(f => f.endsWith('installer.jar'));
+    const hasRunBat = files.includes('run.bat') || files.includes('run.sh');
+    // Legacy detection (universal jar presence)
+    const hasLegacyJar = files.some(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
+
+    if (!hasRunBat && !hasLegacyJar && installerJar) {
+      io.to(serverName).emit('console-output', 'Forge Installer detected. Running installation first (this may take a while)...\r\n');
+      io.to(serverName).emit('server-status', 'installing');
+
+      try {
+        await new Promise((resolve, reject) => {
+          const installerProcess = spawn('java', ['-jar', installerJar, '--installServer'], { cwd: serverDir });
+
+          installerProcess.stdout.on('data', (data) => {
+            io.to(serverName).emit('console-output', `[Installer] ${data.toString()}`);
+          });
+
+          installerProcess.stderr.on('data', (data) => {
+            io.to(serverName).emit('console-output', `[Installer Error] ${data.toString()}`);
+          });
+
+          installerProcess.on('close', (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`Installer exited with code ${code}`));
+          });
+        });
+
+        io.to(serverName).emit('console-output', 'Installation complete! Starting server...\r\n');
+        // Refresh file list to find the new run files
+        files = await fs.readdir(serverDir);
+
+      } catch (err) {
+        io.to(serverName).emit('console-output', `Installation failed: ${err.message}\r\n`);
+        io.to(serverName).emit('server-status', 'offline');
+        return;
+      }
+    }
+
+    // Modern Forge (1.17+) uses run.bat/run.sh which calls a library path
+    // Legacy Forge (1.12 etc) uses a universal jar
+
+    // Re-check files after potential install
+    const forgeJar = files.find(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
+
+    if (forgeJar) {
+      // Legacy way
+      args = [...javaArgs, '-jar', forgeJar, 'nogui'];
+    } else {
+      // Modern way: check for run.bat / run.sh
+      if (os.platform() === 'win32' && files.includes('run.bat')) {
+        // Inject memory args into user_jvm_args.txt
+        const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
+        try {
+          // always overwrite/create to ensure our settings apply
+          await fs.writeFile(jvmArgsFile, javaArgs.join('\n'));
+        } catch (e) {
+          console.error("Failed to write user_jvm_args.txt", e);
+        }
+
+        shell = 'cmd.exe';
+        args = ['/c', 'run.bat'];
+      } else if (files.includes('run.sh')) {
+        // Linux/Mac
+        const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
+        try {
+          await fs.writeFile(jvmArgsFile, javaArgs.join('\n'));
+        } catch (e) { }
+
+        shell = 'bash';
+        args = ['run.sh'];
+      } else {
+        io.to(serverName).emit('console-output', 'Could not detect Forge startup method (No jar/script found). Did install fail?\r\n');
+        io.to(serverName).emit('server-status', 'offline');
+        return;
+      }
+    }
+  } else {
+    // Fabric / Vanilla JAR
+    args = [...javaArgs, '-jar', jarFile, 'nogui'];
+  }
+
+  io.to(serverName).emit('server-status', 'starting');
+  io.to(serverName).emit('console-output', `\r\nStarting server: ${serverName}...\r\n`);
+  io.to(serverName).emit('console-output', `Executing: java ${args.join(' ')}\r\n\r\n`);
+
+  const ptyProcess = pty.spawn(shell, args, {
+    name: 'xterm-color',
+    cols: 80,
+    rows: 30,
+    cwd: serverDir,
+    env: process.env
+  });
+
+  activeServers.set(serverName, ptyProcess);
+  io.to(serverName).emit('server-status', 'online');
+
+  ptyProcess.onData((data) => {
+    io.to(serverName).emit('console-output', data);
+  });
+
+  ptyProcess.onExit((res) => {
+    activeServers.delete(serverName);
+    io.to(serverName).emit('console-output', `\r\nServer stopped with exit code: ${res.exitCode}\r\n`);
+    io.to(serverName).emit('server-status', 'offline');
+
+    // Auto-restart if pending
+    if (restartPending.has(serverName)) {
+      restartPending.delete(serverName);
+      io.to(serverName).emit('console-output', `\r\n[Auto-Restart] Server restarting...\r\n`);
+      setTimeout(() => {
+        startServerProcess(serverName);
+      }, 3000); // Wait 3s before restart
+    }
+  });
+}
+
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
@@ -490,163 +720,21 @@ io.on('connection', (socket) => {
     } else {
       socket.emit('server-status', 'offline');
     }
+
+    // Send schedule status
+    socket.emit('schedule-status', scheduledRestarts.has(serverName));
   });
 
   socket.on('server-start', async (serverName) => {
-    if (activeServers.has(serverName)) {
-      socket.emit('console-output', 'Server is already running.\r\n');
-      return;
-    }
-
-    const serverDir = path.join(SERVERS_DIR, serverName);
-    if (!fs.existsSync(serverDir)) {
-      socket.emit('console-output', 'Server directory not found.\r\n');
-      return;
-    }
-
-    // Find the JAR file
-    const files = await fs.readdir(serverDir);
-    const jarFile = files.find(f => f.endsWith('.jar'));
-
-    if (!jarFile) {
-      socket.emit('console-output', 'No server JAR file found.\r\n');
-      return;
-    }
-
-    const jarPath = path.join(serverDir, jarFile);
-    let shell = os.platform() === 'win32' ? 'java.exe' : 'java';
-
-    // Load config for memory settings & type
-    let javaArgs = ['-Xmx2G', '-Xms1G']; // Defaults
-    let serverType = 'fabric';
-    const configPath = path.join(serverDir, 'mcmanager.json');
-    try {
-      if (await fs.pathExists(configPath)) {
-        const config = await fs.readJson(configPath);
-        if (config.javaArgs) {
-          javaArgs = config.javaArgs.split(' ');
-        }
-        if (config.type) {
-          serverType = config.type;
-        }
-      }
-    } catch (err) {
-      console.error("Error reading config", err);
-    }
-
-    let args = [];
-
-    if (serverType === 'forge') {
-      // Check if we need to install first
-      const installerJar = files.find(f => f.endsWith('installer.jar'));
-      const hasRunBat = files.includes('run.bat') || files.includes('run.sh');
-      // Legacy detection (universal jar presence)
-      const hasLegacyJar = files.some(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
-
-      if (!hasRunBat && !hasLegacyJar && installerJar) {
-        io.to(serverName).emit('console-output', 'Forge Installer detected. Running installation first (this may take a while)...\r\n');
-        io.to(serverName).emit('server-status', 'installing'); // Custom status or just keep 'starting'
-
-        try {
-          await new Promise((resolve, reject) => {
-            const installerProcess = spawn('java', ['-jar', installerJar, '--installServer'], { cwd: serverDir });
-
-            installerProcess.stdout.on('data', (data) => {
-              io.to(serverName).emit('console-output', `[Installer] ${data.toString()}`);
-            });
-
-            installerProcess.stderr.on('data', (data) => {
-              io.to(serverName).emit('console-output', `[Installer Error] ${data.toString()}`);
-            });
-
-            installerProcess.on('close', (code) => {
-              if (code === 0) resolve();
-              else reject(new Error(`Installer exited with code ${code}`));
-            });
-          });
-
-          io.to(serverName).emit('console-output', 'Installation complete! Starting server...\r\n');
-          // Refresh file list to find the new run files
-          files = await fs.readdir(serverDir);
-
-        } catch (err) {
-          io.to(serverName).emit('console-output', `Installation failed: ${err.message}\r\n`);
-          io.to(serverName).emit('server-status', 'offline');
-          return;
-        }
-      }
-
-      // Modern Forge (1.17+) uses run.bat/run.sh which calls a library path
-      // Legacy Forge (1.12 etc) uses a universal jar
-
-      // Re-check files after potential install
-      const forgeJar = files.find(f => f.startsWith('forge-') && (f.endsWith('universal.jar') || f.endsWith('server.jar')) && !f.endsWith('installer.jar'));
-
-      if (forgeJar) {
-        // Legacy way
-        args = [...javaArgs, '-jar', forgeJar, 'nogui'];
-      } else {
-        // Modern way: check for run.bat / run.sh
-        if (os.platform() === 'win32' && files.includes('run.bat')) {
-          // Inject memory args into user_jvm_args.txt
-          const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
-          try {
-            // always overwrite/create to ensure our settings apply
-            // Format note: arguments can be newlines. 
-            await fs.writeFile(jvmArgsFile, javaArgs.join('\n'));
-          } catch (e) {
-            console.error("Failed to write user_jvm_args.txt", e);
-          }
-
-          shell = 'cmd.exe';
-          args = ['/c', 'run.bat'];
-        } else if (files.includes('run.sh')) {
-          // Linux/Mac
-          const jvmArgsFile = path.join(serverDir, 'user_jvm_args.txt');
-          try {
-            await fs.writeFile(jvmArgsFile, javaArgs.join('\n'));
-          } catch (e) { }
-
-          shell = 'bash';
-          args = ['run.sh'];
-        } else {
-          io.to(serverName).emit('console-output', 'Could not detect Forge startup method (No jar/script found). Did install fail?\r\n');
-          io.to(serverName).emit('server-status', 'offline');
-          return;
-        }
-      }
-    } else {
-      // Fabric / Vanilla JAR
-      args = [...javaArgs, '-jar', jarFile, 'nogui'];
-    }
-
-    io.to(serverName).emit('server-status', 'starting');
-    io.to(serverName).emit('console-output', `\r\nStarting server: ${serverName}...\r\n`);
-    io.to(serverName).emit('console-output', `Executing: java ${args.join(' ')}\r\n\r\n`);
-
-    const ptyProcess = pty.spawn(shell, args, {
-      name: 'xterm-color',
-      cols: 80,
-      rows: 30,
-      cwd: serverDir,
-      env: process.env
-    });
-
-    activeServers.set(serverName, ptyProcess);
-    io.to(serverName).emit('server-status', 'online');
-
-    ptyProcess.onData((data) => {
-      io.to(serverName).emit('console-output', data);
-    });
-
-    ptyProcess.onExit((res) => {
-      activeServers.delete(serverName);
-      io.to(serverName).emit('console-output', `\r\nServer stopped with exit code: ${res.exitCode}\r\n`);
-      io.to(serverName).emit('server-status', 'offline');
-    });
+    await startServerProcess(serverName);
   });
 
   socket.on('server-stop', (serverName) => {
+    // If user manually stops, cancel any auto-restart logic
+    scheduledRestarts.delete(serverName);
+    restartPending.delete(serverName);
+    io.to(serverName).emit('schedule-status', false);
+
     const ptyProcess = activeServers.get(serverName);
     if (ptyProcess) {
       io.to(serverName).emit('console-output', '\r\nSending stop command...\r\n');
@@ -790,6 +878,28 @@ app.post('/api/server/:serverName/json/:type', async (req, res) => {
   }
 });
 
+// ===== Auto-Restart Logic =====
+
+// Schedule a restart for when the server is empty
+app.post('/api/server/:serverName/schedule-restart', (req, res) => {
+  const { serverName } = req.params;
+  if (!activeServers.has(serverName)) {
+    return res.status(400).json({ error: 'Server is not running' });
+  }
+
+  scheduledRestarts.add(serverName);
+  io.to(serverName).emit('console-output', '\r\n[System] Server restart scheduled. Waiting for players to disconnect...\r\n');
+  res.json({ success: true, message: 'Restart scheduled' });
+});
+
+// Cancel a scheduled restart
+app.post('/api/server/:serverName/cancel-restart', (req, res) => {
+  const { serverName } = req.params;
+  scheduledRestarts.delete(serverName);
+  io.to(serverName).emit('console-output', '\r\n[System] Scheduled restart cancelled.\r\n');
+  res.json({ success: true, message: 'Restart cancelled' });
+});
+
 // ===== Dashboard Monitor =====
 // Polls active servers for player counts and status
 
@@ -797,8 +907,6 @@ const dashboardStats = new Map(); // serverName -> { status, players, maxPlayers
 
 setInterval(async () => {
   // Only poll active servers (processes we manage)
-  // We could assume others are offline, or check them too if we knew their ports.
-  // For now, iterate activeServers.
 
   const update = {};
 
@@ -815,16 +923,39 @@ setInterval(async () => {
 
       // Ping
       const status = await util.status('localhost', port, { timeout: 1000 });
+      const playerCount = status.players.online;
+
       update[name] = {
         status: 'online',
-        players: status.players.online,
+        players: playerCount,
         maxPlayers: status.players.max,
-        version: status.version.name.replace(/[^0-9.]/g, '') // simplify
+        version: status.version.name.replace(/[^0-9.]/g, ''), // simplify
+        restartScheduled: scheduledRestarts.has(name)
       };
+
+      // Check for scheduled restart
+      if (scheduledRestarts.has(name) && playerCount === 0) {
+        console.log(`[Auto-Restart] Triggering restart for ${name} (0 active players)`);
+        io.to(name).emit('console-output', '\r\n[Auto-Restart] Server is empty. Restarting now...\r\n');
+
+        // Remove from scheduled list so we don't trigger again
+        scheduledRestarts.delete(name);
+
+        // Mark as pending restart so exit handler knows to start it back up
+        restartPending.add(name);
+
+        // Stop the server
+        pty.write('stop\r');
+      }
+
     } catch (e) {
       // Server might be starting or stopping
-      update[name] = { status: 'starting', players: 0, maxPlayers: 0 };
-      // If pty exists but ping fails, it's likely starting or crashing
+      update[name] = {
+        status: 'starting',
+        players: 0,
+        maxPlayers: 0,
+        restartScheduled: scheduledRestarts.has(name)
+      };
     }
   }
 

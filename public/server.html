@@ -37,6 +37,9 @@
                     <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">
                         ⚙️ Settings
                     </button>
+                    <button class="tab-btn" data-tab="mods" onclick="switchTab('mods')">
+                        🔧 Mod Configs
+                    </button>
                 </nav>
             </aside>
 
@@ -48,7 +51,11 @@
                         <button id="startBtn" class="btn-success" onclick="startServer()">▶ Start</button>
                         <button id="stopBtn" class="btn-danger" onclick="stopServer()">⏹ Stop</button>
                         <button id="restartBtn" class="btn-warning" onclick="restartServer()">🔃 Restart</button>
+                        <button id="scheduleRestartBtn" class="btn-secondary" onclick="toggleScheduleRestart()"
+                            title="Restart when empty">⏳ Restart When Empty</button>
                         <span id="serverStatus" class="status-badge offline">OFFLINE</span>
+                        <span id="restartStatus" class="status-badge warning" style="display: none;">RESTART
+                            SCHEDULED</span>
                     </div>
                     <div id="terminal-container" class="terminal-container"></div>
                 </div>
@@ -143,6 +150,34 @@
                         </div>
                         <button class="btn-primary" onclick="saveProperties()">Save Properties</button>
                     </section>
+                </div>
+
+                <!-- Mod Configs Tab -->
+                <div class="tab-content" id="mods-tab">
+                    <h2>Mod Configurations</h2>
+                    <p class="placeholder-text" id="mods-placeholder">Select a configuration file to edit.</p>
+
+                    <!-- File Grid View -->
+                    <div class="file-grid" id="modConfigBrowser">
+                        <p class="loading-text">Loading configs...</p>
+                    </div>
+
+                    <!-- Config Editor View (Hidden by default) -->
+                    <div id="modConfigEditor" style="display: none;">
+                        <div class="editor-toolbar">
+                            <div class="editor-title">
+                                <button class="btn-secondary" onclick="closeModConfig()">← Back</button>
+                                <span id="currentConfigName">filename</span>
+                            </div>
+                            <button class="btn-primary" onclick="saveModConfig()">💾 Save Changes</button>
+                        </div>
+
+                        <!-- Grid Form Editor -->
+                        <div id="configGridContainer" class="properties-grid"></div>
+
+                        <!-- Fallback Raw Text Editor -->
+                        <textarea id="configRawEditor" class="config-raw-editor" style="display: none;"></textarea>
+                    </div>
                 </div>
             </main>
         </div>

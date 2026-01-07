@@ -6,6 +6,7 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 const multer = require('multer');
 const { exec, spawn } = require('child_process');
+const util = require('minecraft-server-util'); // For pinging servers
 
 const http = require('http');
 const { Server } = require("socket.io");
@@ -422,6 +423,30 @@ app.post('/api/server/:serverName/upload', upload.array('files'), async (req, re
   }
 });
 
+// Delete Server
+app.delete('/api/server/:serverName', async (req, res) => {
+  try {
+    const { serverName } = req.params;
+    const safeName = serverName.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const serverDir = path.join(SERVERS_DIR, safeName);
+
+    // Check if running
+    if (activeServers.has(safeName)) {
+      return res.status(400).json({ error: 'Server is running. Please stop it before deleting.' });
+    }
+
+    if (!await fs.pathExists(serverDir)) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    await fs.remove(serverDir);
+    res.json({ success: true, message: 'Server deleted successfully' });
+  } catch (error) {
+    console.error('Delete error:', error);
+    res.status(500).json({ error: 'Failed to delete server' });
+  }
+});
+
 // Create directory
 app.post('/api/server/:serverName/directory', async (req, res) => {
   const { serverName } = req.params;
@@ -764,6 +789,48 @@ app.post('/api/server/:serverName/json/:type', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ===== Dashboard Monitor =====
+// Polls active servers for player counts and status
+
+const dashboardStats = new Map(); // serverName -> { status, players, maxPlayers }
+
+setInterval(async () => {
+  // Only poll active servers (processes we manage)
+  // We could assume others are offline, or check them too if we knew their ports.
+  // For now, iterate activeServers.
+
+  const update = {};
+
+  for (const [name, pty] of activeServers.entries()) {
+    try {
+      // Read properties to find port
+      const propsPath = path.join(SERVERS_DIR, name, 'server.properties');
+      let port = 25565;
+      if (await fs.pathExists(propsPath)) {
+        const content = await fs.readFile(propsPath, 'utf8');
+        const portLine = content.split('\n').find(l => l.trim().startsWith('server-port='));
+        if (portLine) port = parseInt(portLine.split('=')[1].trim());
+      }
+
+      // Ping
+      const status = await util.status('localhost', port, { timeout: 1000 });
+      update[name] = {
+        status: 'online',
+        players: status.players.online,
+        maxPlayers: status.players.max,
+        version: status.version.name.replace(/[^0-9.]/g, '') // simplify
+      };
+    } catch (e) {
+      // Server might be starting or stopping
+      update[name] = { status: 'starting', players: 0, maxPlayers: 0 };
+      // If pty exists but ping fails, it's likely starting or crashing
+    }
+  }
+
+  io.to('dashboard').emit('dashboard-update', update);
+
+}, 5000); // Every 5 seconds
 
 // Start server
 server.listen(PORT, () => {

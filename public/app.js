@@ -24,8 +24,81 @@ let forgePromos = {}; // Store fetched promos
 async function init() {
     await loadVersions();
     setupEventListeners();
+    setupModal();
     await loadVersions();
     await loadServers();
+
+    // Connect to dashboard socket
+    const socket = io();
+    socket.emit('join-dashboard');
+
+    socket.on('dashboard-update', (updates) => {
+        Object.keys(updates).forEach(serverName => {
+            updateServerCard(serverName, updates[serverName]);
+        });
+    });
+}
+
+function updateServerCard(serverName, stats) {
+    const card = document.querySelector(`.server-card[data-name="${serverName}"]`);
+    if (card) {
+        const badge = card.querySelector('.status-badge');
+        const players = card.querySelector('.player-count');
+
+        if (badge) {
+            badge.className = `status-badge ${stats.status}`;
+            badge.textContent = stats.status.toUpperCase();
+        }
+        if (players) {
+            const max = stats.maxPlayers || '?';
+            players.textContent = `${stats.players} / ${max}`;
+        }
+    }
+}
+
+// Modal Logic
+function setupModal() {
+    const modal = document.getElementById('createModal');
+    const btn = document.getElementById('openCreateBtn');
+    const span = document.querySelector('.close-modal');
+
+    btn.onclick = () => modal.style.display = "block";
+    span.onclick = () => modal.style.display = "none";
+    window.onclick = (event) => {
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
+    }
+}
+
+// function openServer(name) - Removed, used inline listener now
+
+
+async function deleteServer(name) {
+    if (!confirm(`Are you sure you want to delete server "${name}"?\n\nWARNING: This will permanently delete all files for this server.\nThis action cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/server/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const card = document.querySelector(`.server-card[data-name="${name}"]`);
+            if (card) card.remove();
+
+            showStatus(`Server "${name}" deleted successfully`, 'success');
+            setTimeout(loadServers, 1000);
+        } else {
+            alert(`Cannot Delete Server:\n${result.error}`);
+        }
+    } catch (error) {
+        console.error('Delete error', error);
+        alert('Failed to delete server. Check console for details.');
+    }
 }
 
 function setupEventListeners() {
@@ -172,12 +245,46 @@ async function loadServers() {
         }
 
         serverList.innerHTML = servers.map(server => `
-            <div class="server-item" onclick="window.location.href='server.html?name=${encodeURIComponent(server.name)}'">
-                <h3>${server.name}</h3>
-                <p>Created: ${new Date(server.created).toLocaleString()}</p>
-                ${server.jarFile ? `<span class="jar-file">${server.jarFile}</span>` : '<p>No JAR file found</p>'}
+            <div class="server-card" data-name="${server.name}">
+                <div class="card-header">
+                    <div class="card-header-left">
+                        <h3>${server.name}</h3>
+                        <span class="status-badge offline">OFFLINE</span>
+                    </div>
+                    <div class="card-actions">
+                        <button class="delete-btn" data-delete="${server.name}" title="Delete Server">🗑️</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="server-type">${server.jarFile ? (server.jarFile.includes('forge') ? 'Forge' : 'Fabric') : 'Unknown'}</p>
+                    <div class="server-meta">
+                         <div class="meta-item">
+                            <span class="icon">👥</span>
+                            <span class="player-count">- / -</span>
+                         </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                     <span class="created-date">Created: ${new Date(server.created).toLocaleDateString()}</span>
+                </div>
             </div>
         `).join('');
+
+        // Attach Event Listeners
+        document.querySelectorAll('.server-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const name = card.dataset.name;
+                window.location.href = `server.html?name=${encodeURIComponent(name)}`;
+            });
+        });
+
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Stop bubbling to card click
+                const name = btn.dataset.delete;
+                deleteServer(name);
+            });
+        });
 
     } catch (error) {
         console.error('Error loading servers:', error);

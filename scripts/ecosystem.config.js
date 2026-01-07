@@ -2,7 +2,8 @@ module.exports = {
     apps: [
         {
             name: 'mcmanager',
-            script: './server.js',
+            script: '../server.js',
+            cwd: __dirname + '/..',
             instances: 1,
             autorestart: true,
             watch: false,
@@ -11,14 +12,15 @@ module.exports = {
                 NODE_ENV: 'production',
                 PORT: 3000
             },
-            error_file: './logs/mcmanager-error.log',
-            out_file: './logs/mcmanager-out.log',
+            error_file: '../logs/mcmanager-error.log',
+            out_file: '../logs/mcmanager-out.log',
             log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
             merge_logs: true
         },
         {
             name: 'mcmanager-updater',
             script: './auto-update.js',
+            cwd: __dirname,
             instances: 1,
             autorestart: true,
             watch: false,
@@ -26,8 +28,8 @@ module.exports = {
             env: {
                 NODE_ENV: 'production'
             },
-            error_file: './logs/updater-error.log',
-            out_file: './logs/updater-out.log',
+            error_file: '../logs/updater-error.log',
+            out_file: '../logs/updater-out.log',
             log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
             merge_logs: true
         }

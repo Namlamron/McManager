@@ -8,6 +8,9 @@ servers/
 # Environment configuration
 .env
 
+# Standalone installer (configured per deployment)
+Install-Standalone.bat
+
 # Logs
 *.log
 npm-debug.log*

@@ -24,7 +24,20 @@ git clone <YOUR_GIT_REPO_URL> McManager
 cd McManager
 ```
 
-### 2. Install Dependencies
+### 2. Run the Installation Script
+
+```powershell
+Install.bat
+```
+
+The installer will:
+- Check for Node.js and Git
+- Install all dependencies
+- Optionally install PM2
+- Create .env configuration file
+- Guide you through the setup
+
+**Or install manually:**
 
 ```powershell
 npm install

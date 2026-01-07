@@ -17,8 +17,8 @@ A web-based Minecraft server management tool for creating and managing modded Mi
 ### Prerequisites
 
 - Node.js (v14 or higher)
+- Git (for auto-updates)
 - Java (for running Minecraft servers)
-- Git
 
 ### Installation
 
@@ -28,10 +28,17 @@ git clone <YOUR_REPO_URL>
 cd McManager
 ```
 
-2. Install dependencies:
+2. Run the installer:
 ```bash
-npm install
+Install.bat
 ```
+
+The installer will:
+- ✅ Check prerequisites (Node.js, Git)
+- ✅ Install dependencies
+- ✅ Optionally install PM2
+- ✅ Create .env configuration
+- ✅ Guide you through setup
 
 3. Start McManager:
 ```bash
@@ -45,7 +52,29 @@ That's it! The script automatically:
 
 4. Open your browser to `http://localhost:3000`
 
-## Production Setup with PM2
+---
+
+## Standalone Installer (Easy Distribution)
+
+Want to install on another computer without cloning first?
+
+1. **Configure the installer:**
+   - Open `Install-Standalone.bat`
+   - Set your Git repository URL
+   
+2. **Copy to target computer:**
+   - Copy `Install-Standalone.bat` to any folder
+   
+3. **Run it:**
+   ```bash
+   Install-Standalone.bat
+   ```
+
+The installer will clone the repo and set up everything automatically!
+
+See [docs/STANDALONE-INSTALLER.md](docs/STANDALONE-INSTALLER.md) for details.
+
+---
 
 For production deployment with auto-restart and auto-updates:
 
@@ -65,7 +94,7 @@ Now your server will:
 - ✅ Start automatically on boot
 - ✅ Manage logs efficiently
 
-See [PM2-GUIDE.md](PM2-GUIDE.md) for detailed PM2 usage.
+See [docs/PM2-GUIDE.md](docs/PM2-GUIDE.md) for detailed PM2 usage.
 
 ---
 
@@ -78,14 +107,14 @@ The auto-update service (included in PM2 setup) automatically pulls and deploys 
 2. `git push origin main`
 3. Server automatically updates within ~1 minute! 🎉
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed deployment instructions.
 
 ---
 
 ### Quick Update (on server)
 
 ```bash
-.\update.bat
+scripts\update.bat
 ```
 
 ## Configuration
@@ -99,16 +128,21 @@ Create a `.env` file based on `.env.example` to customize:
 
 ```
 McManager/
-├── server.js           # Main Express server
-├── public/             # Frontend files
-│   ├── index.html      # Dashboard
-│   ├── server.html     # Server management page
-│   ├── app.js          # Main frontend logic
-│   └── js/
-│       └── manager.js  # Server management UI
-├── servers/            # Minecraft server instances (not in Git)
-├── DEPLOYMENT.md       # Deployment guide
-└── update.bat          # Server update script
+├── Install.bat            # Automated installation script
+├── Start.bat              # One-click startup (auto-detects PM2)
+├── Stop.bat               # Stop all services
+├── server.js              # Main Express server
+├── public/                # Frontend files
+├── servers/               # Minecraft servers (not in Git)
+├── scripts/               # Deployment & automation scripts
+│   ├── auto-update.js     # Auto-deployment service
+│   ├── ecosystem.config.js # PM2 configuration
+│   └── update.bat         # Manual update script
+├── docs/                  # Documentation
+│   ├── DEPLOYMENT.md      # Deployment guide
+│   ├── PM2-GUIDE.md       # PM2 detailed guide
+│   └── QUICK-REFERENCE.md # Command cheat sheet
+└── logs/                  # PM2 logs
 ```
 
 ## Technologies Used

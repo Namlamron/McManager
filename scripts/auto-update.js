@@ -18,7 +18,7 @@ const path = require('path');
 
 // Configuration
 const CHECK_INTERVAL = 60000; // Check every 60 seconds (1 minute)
-const REPO_PATH = __dirname; // Current directory
+const REPO_PATH = path.join(__dirname, '..'); // Parent directory (project root)
 const BRANCH = 'main'; // Change if using different branch
 
 let isUpdating = false;

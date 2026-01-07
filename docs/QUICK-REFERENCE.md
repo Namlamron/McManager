@@ -1,5 +1,15 @@
 # McManager Quick Reference
 
+## Installation
+
+```powershell
+Install.bat
+```
+
+Automatically sets up everything you need!
+
+---
+
 ## Starting McManager
 
 ### Simple - Just Run This!

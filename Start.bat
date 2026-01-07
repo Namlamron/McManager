@@ -39,7 +39,7 @@ if %errorlevel% equ 0 (
 
 :start_pm2
 echo Starting McManager with PM2...
-pm2 start ecosystem.config.js
+pm2 start scripts/ecosystem.config.js
 if %errorlevel% neq 0 (
     echo.
     echo ERROR: Failed to start with PM2!

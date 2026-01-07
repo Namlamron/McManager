@@ -25,10 +25,10 @@ pm2 --version
 
 ```powershell
 # Start both McManager and auto-updater
-.\start-pm2.bat
+Start.bat
 
 # Or manually:
-pm2 start ecosystem.config.js
+pm2 start scripts/ecosystem.config.js
 ```
 
 **Option 2: Start services individually**
@@ -115,10 +115,10 @@ pm2 flush
 
 ### Reloading Configuration
 
-After updating `ecosystem.config.js`:
+After updating `scripts/ecosystem.config.js`:
 
 ```powershell
-pm2 reload ecosystem.config.js
+pm2 reload scripts/ecosystem.config.js
 ```
 
 ---
@@ -167,7 +167,7 @@ Edit `ecosystem.config.js` to change:
 
 3. **Start services with PM2:**
    ```powershell
-   pm2 start ecosystem.config.js
+   pm2 start scripts/ecosystem.config.js
    pm2 save
    pm2 startup
    ```
@@ -189,7 +189,7 @@ Edit `ecosystem.config.js` to change:
 
 2. **On your server:**
    - **Automatic:** The auto-updater will detect and deploy within ~1 minute
-   - **Manual:** Run `.\update.bat` or `pm2 restart all`
+   - **Manual:** Run `scripts\update.bat` or `pm2 restart all`
 
 ---
 

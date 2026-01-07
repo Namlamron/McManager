@@ -11,6 +11,11 @@ servers/
 # Logs
 *.log
 npm-debug.log*
+logs/
+
+# PM2
+.pm2/
+pids/
 
 # OS files
 .DS_Store

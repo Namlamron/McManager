@@ -33,18 +33,54 @@ cd McManager
 npm install
 ```
 
-3. Start the server:
+3. Start McManager:
 ```bash
-npm start
-# or
 Start.bat
 ```
 
+That's it! The script automatically:
+- Detects if PM2 is installed
+- Starts in production mode (with PM2) or simple mode
+- Sets up auto-updates if PM2 is available
+
 4. Open your browser to `http://localhost:3000`
 
-## Deployment
+## Production Setup with PM2
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions on deploying to a server computer and keeping it updated.
+For production deployment with auto-restart and auto-updates:
+
+```bash
+# Install PM2
+npm install -g pm2
+
+# Start all services (main server + auto-updater)
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+Now your server will:
+- ✅ Auto-restart if it crashes
+- ✅ Auto-deploy when you push to Git
+- ✅ Start automatically on boot
+- ✅ Manage logs efficiently
+
+See [PM2-GUIDE.md](PM2-GUIDE.md) for detailed PM2 usage.
+
+---
+
+## Auto-Deployment
+
+The auto-update service (included in PM2 setup) automatically pulls and deploys changes when you push to Git.
+
+**Workflow:**
+1. Make changes on your dev computer
+2. `git push origin main`
+3. Server automatically updates within ~1 minute! 🎉
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+
+---
 
 ### Quick Update (on server)
 

@@ -44,6 +44,7 @@ try {
     console.log("Terminal initialized", term.cols, term.rows);
     term.write('\r\n\x1b[32mWelcome to McManager Console\x1b[0m\r\n');
     term.write('\x1b[90mWaiting for server logs...\x1b[0m\r\n');
+    term.focus(); // Ensure focus so user can type immediately
 } catch (e) {
     console.error("Failed to init terminal:", e);
 }
@@ -93,6 +94,11 @@ socket.on('schedule-status', (scheduled) => {
 
 // Terminal Input
 term.onData((data) => {
+    // Ignore Ctrl+C (ETX - End of Text) to prevent stopping the server
+    if (data === '\u0003') {
+        return;
+    }
+
     socket.emit('server-command', {
         serverName: serverNameManager,
         command: data

@@ -383,5 +383,26 @@ function setLoading(isLoading) {
     btnLoader.style.display = isLoading ? 'inline-flex' : 'none';
 }
 
+// Update Handler
+window.triggerUpdate = async function () {
+    if (!confirm('This will update McManager and restart the core server process.\nActive Minecraft servers should continue running, but the dashboard will disconnect briefly.\n\nContinue?')) return;
+
+    try {
+        const btn = document.getElementById('updateCheckBtn');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = 'Updating...';
+
+        await fetchAPI('/api/update', { method: 'POST' });
+
+        alert('Update initiated! The page will disconnect now. \nPlease wait ~10 seconds and reload manually.');
+
+    } catch (err) {
+        alert('Update failed: ' + err.message);
+        document.getElementById('updateCheckBtn').disabled = false;
+        document.getElementById('updateCheckBtn').innerHTML = originalText;
+    }
+}
+
 // Initialize on page load
 init();

@@ -3,6 +3,7 @@ title McManager
 color 0A
 cls
 
+:start_loop
 echo ========================================
 echo     McManager - Starting Server
 echo ========================================
@@ -22,5 +23,13 @@ echo Press Ctrl+C to stop the server
 echo.
 
 node server.js
+
+if %errorlevel% equ 42 (
+    echo.
+    echo Restarting McManager...
+    timeout /t 2 >nul
+    cls
+    goto start_loop
+)
 
 pause

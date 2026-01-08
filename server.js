@@ -1129,6 +1129,15 @@ setInterval(async () => {
 
 }, 5000); // Every 5 seconds
 
+// Update Endpoint
+app.post('/api/update', (req, res) => {
+  res.json({ success: true, message: 'Updating and restarting...' });
+  console.log('🔄 Update requested. Restarting process...');
+  setTimeout(() => {
+    process.exit(42); // Exit with code 42 to trigger Start.bat loop
+  }, 1000);
+});
+
 // Start server
 server.listen(PORT, async () => {
   // Get Local IP

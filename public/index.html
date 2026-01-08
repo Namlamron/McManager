@@ -13,7 +13,10 @@
 <body>
     <header class="main-header">
         <h1>McManager</h1>
-        <button id="openCreateBtn" class="btn-primary">➕ Create Server</button>
+        <div style="display: flex; gap: 10px;">
+            <button id="updateCheckBtn" class="btn-secondary" onclick="triggerUpdate()" title="Update McManager">🔄 Update</button>
+            <button id="openCreateBtn" class="btn-primary">➕ Create Server</button>
+        </div>
     </header>
 
     <div class="container dashboard-container">

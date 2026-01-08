@@ -7,8 +7,7 @@ A web-based Minecraft server management tool for creating and managing modded Mi
 - 🚀 **Easy Server Creation** - Create Fabric or Forge servers with a few clicks
 - 📁 **File Management** - Browse, edit, and manage server files through the web interface
 - 🖥️ **Live Console** - Real-time server console with command input
-- 📊 **Server Monitoring** - CPU and memory usage tracking
-- ⚙️ **Configuration Editor** - Edit server.properties and mod configs
+- ⚙️ **Configuration Editor** - Edit server.properties and mod configs in a user-friendly grid interface
 - 🔄 **Auto-Restart** - Schedule server restarts when empty
 - 👥 **Player Management** - View online players and server status
 - 📣 **Discord Webhooks** - Get notifications for server events and player activity
@@ -30,32 +29,24 @@ git clone <YOUR_REPO_URL>
 cd McManager
 ```
 
-2. Run the installer:
+2. Install dependencies:
 ```bash
-Install.bat
+npm install
 ```
 
-The installer will:
-- ✅ Check prerequisites (Node.js, Git)
-- ✅ Install dependencies
-- ✅ Optionally install PM2
-- ✅ Create .env configuration
-- ✅ Guide you through setup
-
-3. Start McManager:
+3. Create a `.env` file based on `.env.example`:
 ```bash
-McManager.bat
+copy .env.example .env
 ```
 
-**That's it!** Just double-click and it starts with PM2:
-- ✅ Auto-updates when you push to Git
-- ✅ Auto-restart on crashes
-- ✅ Shows live console output
-- ✅ Press Ctrl+C to stop viewing logs (server keeps running)
+4. Start McManager:
+```bash
+Start.bat
+```
 
-If PM2 isn't installed, it will install it automatically or fall back to simple mode.
+The `Start.bat` script will start the McManager server and show live console output.
 
-4. Open your browser to `http://localhost:3000`
+5. Open your browser to `http://localhost:3000`
 
 ---
 
@@ -65,7 +56,7 @@ Want to install on another computer without cloning first?
 
 1. **Configure the installer:**
    - Open `Install-Standalone.bat`
-   - Set your Git repository URL
+   - Set your Git repository URL at the top of the file
    
 2. **Copy to target computer:**
    - Copy `Install-Standalone.bat` to any folder
@@ -75,59 +66,24 @@ Want to install on another computer without cloning first?
    Install-Standalone.bat
    ```
 
-The installer will clone the repo and set up everything automatically!
+The installer will:
+- ✅ Check for Node.js and Git
+- ✅ Clone the repository
+- ✅ Install dependencies
+
+- ✅ Create `.env` configuration
+- ✅ Set up everything automatically
 
 See [docs/STANDALONE-INSTALLER.md](docs/STANDALONE-INSTALLER.md) for details.
 
----
 
-For production deployment with auto-restart and auto-updates:
-
-```bash
-# Install PM2
-npm install -g pm2
-
-# Start all services (main server + auto-updater)
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup
-```
-
-Now your server will:
-- ✅ Auto-restart if it crashes
-- ✅ Auto-deploy when you push to Git
-- ✅ Start automatically on boot
-- ✅ Manage logs efficiently
-
-See [docs/PM2-GUIDE.md](docs/PM2-GUIDE.md) for detailed PM2 usage.
-
----
-
-## Auto-Deployment
-
-The auto-update service (included in PM2 setup) automatically pulls and deploys changes when you push to Git.
-
-**Workflow:**
-1. Make changes on your dev computer
-2. `git push origin main`
-3. Server automatically updates within ~1 minute! 🎉
-
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed deployment instructions.
-
----
-
-### Quick Update (on server)
-
-```bash
-scripts\update.bat
-```
 
 ## Configuration
 
 Create a `.env` file based on `.env.example` to customize:
-- Server port
-- Environment mode
-- Custom servers directory
+- `PORT` - Web interface port (default: 3000)
+- `NODE_ENV` - Environment mode (development/production)
+- `SERVERS_DIR` - Custom servers directory path
 
 ## Discord Webhook Setup
 
@@ -164,31 +120,32 @@ Each server can have its own webhook URL, so you can send notifications to diffe
 
 ```
 McManager/
-├── McManager.bat          # Main launcher (app-style menu)
-├── Install.bat            # Automated installation script
-├── Start.bat              # Advanced startup (with PM2)
-├── Stop.bat               # Stop all services
-├── Logs.bat               # View logs
+├── Start.bat              # Main startup script (auto-detects PM2)
+├── Install-Standalone.bat # Standalone installer for easy distribution
 ├── server.js              # Main Express server
+├── discord-webhook.js     # Discord webhook notifications
+├── package.json           # Node.js dependencies
+├── .env.example           # Environment configuration template
 ├── public/                # Frontend files
-├── servers/               # Minecraft servers (not in Git)
-├── scripts/               # Deployment & automation scripts
-│   ├── auto-update.js     # Auto-deployment service
-│   ├── ecosystem.config.js # PM2 configuration
-│   └── update.bat         # Manual update script
+│   ├── index.html         # Dashboard
+│   ├── server.html        # Server detail page
+│   ├── css/               # Stylesheets
+│   └── js/                # Client-side JavaScript
+├── servers/               # Minecraft servers directory (not in Git)
 ├── docs/                  # Documentation
-│   ├── DEPLOYMENT.md      # Deployment guide
-│   ├── PM2-GUIDE.md       # PM2 detailed guide
-│   └── QUICK-REFERENCE.md # Command cheat sheet
-└── logs/                  # PM2 logs
+│   ├── QUICK-REFERENCE.md # Command cheat sheet
+│   └── STANDALONE-INSTALLER.md # Standalone installer guide
+└── logs/                  # Application logs
 ```
 
 ## Technologies Used
 
 - **Backend:** Node.js, Express, Socket.IO
 - **Frontend:** Vanilla JavaScript, HTML, CSS
-- **Server Management:** node-pty, pidusage
-- **File Handling:** fs-extra, multer
+- **Server Management:** node-pty (for terminal emulation), minecraft-server-util (for server queries)
+- **File Handling:** fs-extra, multer, adm-zip, archiver
+- **Notifications:** Discord Webhooks (axios)
+
 
 ## License
 
@@ -199,8 +156,8 @@ MIT
 1. Make your changes on your development computer
 2. Test thoroughly
 3. Commit and push to your Git repository
-4. Pull updates on your server using `update.bat`
+4. Pull updates on your server manually with `git pull`
 
 ---
 
-For detailed deployment and update instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+

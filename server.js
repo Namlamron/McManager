@@ -1130,8 +1130,32 @@ setInterval(async () => {
 }, 5000); // Every 5 seconds
 
 // Start server
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
+  // Get Local IP
+  const interfaces = os.networkInterfaces();
+  let localIp = 'localhost';
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+      if (iface.family === 'IPv4' && !iface.internal) {
+        localIp = iface.address;
+        break;
+      }
+    }
+    if (localIp !== 'localhost') break;
+  }
+
+  // Get Public IP
+  let publicIp = 'Unknown';
+  try {
+    const response = await axios.get('https://api.ipify.org?format=json');
+    publicIp = response.data.ip;
+  } catch (err) {
+    console.warn('Could not fetch public IP:', err.message);
+  }
+
   console.log(`\n🚀 Minecraft Server Manager running on port ${PORT}`);
   console.log(`📡 Access the UI at: http://localhost:${PORT}`);
-  console.log(`🌐 Remote access: http://<your-ip>:${PORT}\n`);
+  console.log(`📡 Same network UI at: http://${localIp}:${PORT}`);
+  console.log(`🌐 Remote access: http://${publicIp}:${PORT}\n`);
 });

@@ -151,6 +151,23 @@
                         </div>
                         <button class="btn-primary" onclick="saveProperties()">Save Properties</button>
                     </section>
+
+                    <!-- Discord Webhook -->
+                    <section class="settings-section">
+                        <h3>📣 Discord Notifications</h3>
+                        <p style="color: #888; font-size: 0.9em; margin-bottom: 1em;">
+                            Get notified in Discord when your server starts, stops, or when players join/leave.
+                        </p>
+                        <div class="form-group">
+                            <label>Discord Webhook URL</label>
+                            <input type="text" id="webhookUrl" placeholder="https://discord.com/api/webhooks/...">
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn-primary" onclick="saveWebhook()">💾 Save Webhook</button>
+                            <button class="btn-secondary" onclick="testWebhook()">🧪 Test Webhook</button>
+                        </div>
+                        <div id="webhookStatus" style="margin-top: 10px; font-size: 0.9em;"></div>
+                    </section>
                 </div>
 
                 <!-- Mod Configs Tab -->

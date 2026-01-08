@@ -16,6 +16,7 @@ const term = new Terminal({
     cursorBlink: true,
     fontFamily: 'Consolas, monospace',
     fontSize: 14,
+    lineHeight: 1.2, // Fix vertical clipping "half lines"
     theme: {
         background: '#000000',
         foreground: '#f0f0f0'
@@ -37,10 +38,26 @@ const restartStatusBadge = document.getElementById('restartStatus');
 
 let isRestartScheduled = false;
 
+// Helper to fit and sync size
+function fitTerminal() {
+    try {
+        fitAddon.fit();
+        if (term.cols > 0 && term.rows > 0) {
+            socket.emit('server-resize', {
+                serverName: serverNameManager,
+                cols: term.cols,
+                rows: term.rows
+            });
+        }
+    } catch (e) {
+        console.error("Fit error:", e);
+    }
+}
+
 // Initialize Terminal
 try {
     term.open(termContainer);
-    fitAddon.fit();
+    fitTerminal(); // Fit immediately
     console.log("Terminal initialized", term.cols, term.rows);
     term.write('\r\n\x1b[32mWelcome to McManager Console\x1b[0m\r\n');
     term.write('\x1b[90mWaiting for server logs...\x1b[0m\r\n');
@@ -52,13 +69,7 @@ try {
 
 
 // Handle Window Resize
-window.addEventListener('resize', () => {
-    try {
-        fitAddon.fit();
-    } catch (e) {
-        console.error("Fit error:", e);
-    }
-});
+window.addEventListener('resize', fitTerminal);
 
 // Socket Events
 socket.on('connect', () => {
@@ -190,7 +201,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         const tab = btn.dataset.tab;
         if (tab === 'console') {
-            setTimeout(() => fitAddon.fit(), 100);
+            setTimeout(() => fitTerminal(), 100);
         } else if (tab === 'settings') {
             loadSettings();
         } else if (tab === 'players') {
@@ -791,3 +802,73 @@ function formatBytes(bytes, decimals = 2) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
+
+// ===== Discord Webhook Management =====
+
+// Load webhook settings when settings tab is opened
+async function loadWebhookSettings() {
+    try {
+        const data = await fetchAPI(`/api/server/${serverNameManager}/webhook`);
+        const input = document.getElementById('webhookUrl');
+        if (input) {
+            input.value = data.webhookUrl || '';
+        }
+    } catch (err) {
+        console.error('Failed to load webhook settings:', err);
+    }
+}
+
+// Save webhook URL
+window.saveWebhook = async function () {
+    const input = document.getElementById('webhookUrl');
+    const statusDiv = document.getElementById('webhookStatus');
+    const webhookUrl = input.value.trim();
+
+    try {
+        await fetchAPI(`/api/server/${serverNameManager}/webhook`, {
+            method: 'POST',
+            body: JSON.stringify({ webhookUrl }),
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        statusDiv.innerHTML = '<span style="color: #4caf50;">✅ Webhook saved successfully!</span>';
+        setTimeout(() => statusDiv.innerHTML = '', 3000);
+    } catch (err) {
+        statusDiv.innerHTML = `<span style="color: #f44336;">❌ Error: ${err.message}</span>`;
+    }
+};
+
+// Test webhook
+window.testWebhook = async function () {
+    const input = document.getElementById('webhookUrl');
+    const statusDiv = document.getElementById('webhookStatus');
+    const webhookUrl = input.value.trim();
+
+    if (!webhookUrl) {
+        statusDiv.innerHTML = '<span style="color: #ff9800;">⚠️ Please enter a webhook URL first</span>';
+        return;
+    }
+
+    statusDiv.innerHTML = '<span style="color: #2196f3;">🔄 Sending test notification...</span>';
+
+    try {
+        await fetchAPI(`/api/server/${serverNameManager}/webhook/test`, {
+            method: 'POST',
+            body: JSON.stringify({ webhookUrl }),
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        statusDiv.innerHTML = '<span style="color: #4caf50;">✅ Test notification sent! Check your Discord channel.</span>';
+        setTimeout(() => statusDiv.innerHTML = '', 5000);
+    } catch (err) {
+        statusDiv.innerHTML = `<span style="color: #f44336;">❌ Failed to send: ${err.message}</span>`;
+    }
+};
+
+// Update loadSettings to also load webhook settings
+const originalLoadSettings = loadSettings;
+loadSettings = async function () {
+    await originalLoadSettings();
+    await loadWebhookSettings();
+};
+

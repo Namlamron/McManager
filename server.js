@@ -12,6 +12,8 @@ const http = require('http');
 const { Server } = require("socket.io");
 const pty = require('node-pty');
 const os = require('os');
+const discordWebhook = require('./discord-webhook');
+
 
 
 const app = express();
@@ -836,6 +838,13 @@ async function startServerProcess(serverName) {
   activeServers.set(serverName, ptyProcess);
   io.to(serverName).emit('server-status', 'online');
 
+  // Send Discord webhook notification for server start
+  fs.readJson(configPath).then(config => {
+    if (config.webhookUrl) {
+      discordWebhook.notifyServerStart(serverName, config.webhookUrl);
+    }
+  }).catch(() => { });
+
   ptyProcess.onData((data) => {
     // Store log history
     if (!serverLogs.has(serverName)) {
@@ -846,12 +855,44 @@ async function startServerProcess(serverName) {
     if (logs.length > 2000) logs.shift(); // Keep last 2000 chunks
 
     io.to(serverName).emit('console-output', data);
+
+    // Detect player join/leave events from console output
+    const logLine = data.toString();
+
+    // Player joined: "PlayerName joined the game"
+    const joinMatch = logLine.match(/([\w]+) joined the game/);
+    if (joinMatch) {
+      const playerName = joinMatch[1];
+      fs.readJson(configPath).then(config => {
+        if (config.webhookUrl) {
+          discordWebhook.notifyPlayerJoin(serverName, config.webhookUrl, playerName);
+        }
+      }).catch(() => { });
+    }
+
+    // Player left: "PlayerName left the game"
+    const leaveMatch = logLine.match(/([\w]+) left the game/);
+    if (leaveMatch) {
+      const playerName = leaveMatch[1];
+      fs.readJson(configPath).then(config => {
+        if (config.webhookUrl) {
+          discordWebhook.notifyPlayerLeave(serverName, config.webhookUrl, playerName);
+        }
+      }).catch(() => { });
+    }
   });
 
   ptyProcess.onExit((res) => {
     activeServers.delete(serverName);
     io.to(serverName).emit('console-output', `\r\nServer stopped with exit code: ${res.exitCode}\r\n`);
     io.to(serverName).emit('server-status', 'offline');
+
+    // Send Discord webhook notification for server stop/crash
+    fs.readJson(configPath).then(config => {
+      if (config.webhookUrl) {
+        discordWebhook.notifyServerStop(serverName, config.webhookUrl, res.exitCode);
+      }
+    }).catch(() => { });
 
     // Auto-restart if pending
     if (restartPending.has(serverName)) {
@@ -915,6 +956,18 @@ io.on('connection', (socket) => {
     const ptyProcess = activeServers.get(serverName);
     if (ptyProcess) {
       ptyProcess.write(command);
+    }
+  });
+
+  socket.on('server-resize', (data) => {
+    const { serverName, cols, rows } = data;
+    const ptyProcess = activeServers.get(serverName);
+    if (ptyProcess) {
+      try {
+        ptyProcess.resize(cols, rows);
+      } catch (err) {
+        console.error('Failed to resize PTY:', err);
+      }
     }
   });
 });
@@ -1043,6 +1096,63 @@ app.post('/api/server/:serverName/json/:type', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ===== Discord Webhook Configuration =====
+
+// Get webhook URL for a server
+app.get('/api/server/:serverName/webhook', async (req, res) => {
+  const { serverName } = req.params;
+  const configPath = path.join(SERVERS_DIR, serverName, 'mcmanager.json');
+
+  try {
+    if (await fs.pathExists(configPath)) {
+      const config = await fs.readJson(configPath);
+      res.json({ webhookUrl: config.webhookUrl || '' });
+    } else {
+      res.json({ webhookUrl: '' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Save webhook URL for a server
+app.post('/api/server/:serverName/webhook', async (req, res) => {
+  const { serverName } = req.params;
+  const { webhookUrl } = req.body;
+  const configPath = path.join(SERVERS_DIR, serverName, 'mcmanager.json');
+
+  try {
+    let config = {};
+    if (await fs.pathExists(configPath)) {
+      config = await fs.readJson(configPath);
+    }
+
+    config.webhookUrl = webhookUrl || '';
+    await fs.writeJson(configPath, config);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test webhook
+app.post('/api/server/:serverName/webhook/test', async (req, res) => {
+  const { serverName } = req.params;
+  const { webhookUrl } = req.body;
+
+  try {
+    if (!webhookUrl || webhookUrl.trim() === '') {
+      return res.status(400).json({ error: 'No webhook URL provided' });
+    }
+
+    await discordWebhook.sendTestNotification(serverName, webhookUrl);
+    res.json({ success: true, message: 'Test notification sent!' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to send test notification', details: error.message });
+  }
+});
+
 
 // ===== Auto-Restart Logic =====
 

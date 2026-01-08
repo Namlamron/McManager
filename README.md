@@ -11,6 +11,8 @@ A web-based Minecraft server management tool for creating and managing modded Mi
 - ⚙️ **Configuration Editor** - Edit server.properties and mod configs
 - 🔄 **Auto-Restart** - Schedule server restarts when empty
 - 👥 **Player Management** - View online players and server status
+- 📣 **Discord Webhooks** - Get notifications for server events and player activity
+
 
 ## Quick Start
 
@@ -126,6 +128,37 @@ Create a `.env` file based on `.env.example` to customize:
 - Server port
 - Environment mode
 - Custom servers directory
+
+## Discord Webhook Setup
+
+Get real-time notifications in Discord when your servers start, stop, or when players join/leave!
+
+### Setup Instructions:
+
+1. **Create a Discord Webhook:**
+   - Open your Discord server settings
+   - Go to **Integrations** → **Webhooks**
+   - Click **New Webhook**
+   - Choose a channel (e.g., `#minecraft-alerts`)
+   - Copy the **Webhook URL**
+
+2. **Configure in McManager:**
+   - Open your server in McManager
+   - Go to the **Settings** tab
+   - Scroll to **Discord Notifications**
+   - Paste your webhook URL
+   - Click **Test Webhook** to verify it works
+   - Click **Save Webhook**
+
+3. **You'll receive notifications for:**
+   - 🟢 Server started
+   - 🟡 Server stopped
+   - 🔴 Server crashed
+   - 👋 Player joined
+   - 👋 Player left
+
+Each server can have its own webhook URL, so you can send notifications to different channels!
+
 
 ## Project Structure
 

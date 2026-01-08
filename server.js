@@ -610,6 +610,7 @@ const serverLogs = new Map(); // serverName -> string[] (Circular buffer)
 const scheduledRestarts = new Set(); // Servers waiting for 0 players to restart
 const restartPending = new Set(); // Servers currently stopping that should restart immediately
 const serverPlayerCounts = new Map(); // serverName -> playerCount
+const serverPlayerLists = new Map(); // serverName -> playerName[]
 
 // Monitoring Loop - DISABLED (Causing WMIC errors on Windows)
 /*
@@ -672,9 +673,28 @@ setInterval(async () => {
 
         const status = await util.status('localhost', port, { timeout: 2000 });
         serverPlayerCounts.set(serverName, status.players.online);
+        
+        // Get player list if available
+        const playerList = status.players.list || [];
+        serverPlayerLists.set(serverName, playerList);
+        
+        // Emit player list update to clients watching this server
+        io.to(serverName).emit('player-list-update', {
+          players: playerList,
+          count: status.players.online,
+          maxPlayers: status.players.max
+        });
       }
     } catch (e) {
       serverPlayerCounts.set(serverName, 0); // Assume 0 if query failed (server starting/stopping)
+      serverPlayerLists.set(serverName, []); // Clear player list on error
+      
+      // Emit empty player list on error
+      io.to(serverName).emit('player-list-update', {
+        players: [],
+        count: 0,
+        maxPlayers: 0
+      });
     }
   }
 }, 10000);
@@ -928,6 +948,15 @@ io.on('connection', (socket) => {
     if (history.length > 0) {
       socket.emit('console-history', history.join(''));
     }
+
+    // Send current player list if available
+    const playerList = serverPlayerLists.get(serverName) || [];
+    const playerCount = serverPlayerCounts.get(serverName) || 0;
+    socket.emit('player-list-update', {
+      players: playerList,
+      count: playerCount,
+      maxPlayers: 0 // We don't track max players in this map, but it's fine
+    });
   });
 
   socket.on('server-start', async (serverName) => {

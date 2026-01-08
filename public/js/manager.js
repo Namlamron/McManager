@@ -11,65 +11,71 @@ if (!serverNameManager) {
     console.log("Manager initialized for server:", serverNameManager);
 }
 
-// Terminal Setup
-const term = new Terminal({
-    cursorBlink: true,
-    fontFamily: 'Consolas, monospace',
-    fontSize: 14,
-    lineHeight: 1.2, // Fix vertical clipping "half lines"
-    theme: {
-        background: '#000000',
-        foreground: '#f0f0f0'
-    }
-});
-
-const fitAddon = new FitAddon.FitAddon();
-term.loadAddon(fitAddon);
-
-// DOM Elements
-const termContainer = document.getElementById('terminal-container');
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-const restartBtn = document.getElementById('restartBtn');
-const statusBadge = document.getElementById('serverStatus');
-
-const scheduleRestartBtn = document.getElementById('scheduleRestartBtn');
-const restartStatusBadge = document.getElementById('restartStatus');
+// DOM Elements - Get references when available
+let consoleOutput = null;
+let commandInput = null;
+let sendCommandBtn = null;
+let startBtn = null;
+let stopBtn = null;
+let restartBtn = null;
+let statusBadge = null;
+let scheduleRestartBtn = null;
+let restartStatusBadge = null;
 
 let isRestartScheduled = false;
 
-// Helper to fit and sync size
-function fitTerminal() {
-    try {
-        fitAddon.fit();
-        if (term.cols > 0 && term.rows > 0) {
-            socket.emit('server-resize', {
-                serverName: serverNameManager,
-                cols: term.cols,
-                rows: term.rows
-            });
-        }
-    } catch (e) {
-        console.error("Fit error:", e);
+// Initialize DOM references
+function initDOMElements() {
+    consoleOutput = document.getElementById('console-output');
+    commandInput = document.getElementById('commandInput');
+    sendCommandBtn = document.getElementById('sendCommandBtn');
+    startBtn = document.getElementById('startBtn');
+    stopBtn = document.getElementById('stopBtn');
+    restartBtn = document.getElementById('restartBtn');
+    statusBadge = document.getElementById('serverStatus');
+    scheduleRestartBtn = document.getElementById('scheduleRestartBtn');
+    restartStatusBadge = document.getElementById('restartStatus');
+    
+    // Ensure command input is enabled and ready
+    if (commandInput) {
+        commandInput.removeAttribute('disabled');
+        commandInput.removeAttribute('readonly');
+        commandInput.setAttribute('tabindex', '0');
     }
 }
 
-// Initialize Terminal
-try {
-    term.open(termContainer);
-    fitTerminal(); // Fit immediately
-    console.log("Terminal initialized", term.cols, term.rows);
-    term.write('\r\n\x1b[32mWelcome to McManager Console\x1b[0m\r\n');
-    term.write('\x1b[90mWaiting for server logs...\x1b[0m\r\n');
-    term.focus(); // Ensure focus so user can type immediately
-} catch (e) {
-    console.error("Failed to init terminal:", e);
+// Initialize immediately if DOM is ready, otherwise wait
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDOMElements);
+} else {
+    initDOMElements();
 }
 
+// Initialize Console
+function initConsole() {
+    if (consoleOutput) {
+        consoleOutput.textContent = 'Welcome to McManager Console\nWaiting for server logs...\n';
+        autoScroll();
+    }
+}
 
+// Auto-scroll console to bottom
+function autoScroll() {
+    if (consoleOutput) {
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+}
 
-// Handle Window Resize
-window.addEventListener('resize', fitTerminal);
+// Append text to console output - no processing, just display raw text
+function appendConsole(text) {
+    if (!consoleOutput) return;
+    
+    consoleOutput.textContent += text;
+    autoScroll();
+}
+
+// Initialize on page load
+initConsole();
 
 // Socket Events
 socket.on('connect', () => {
@@ -83,11 +89,14 @@ socket.on('disconnect', () => {
 });
 
 socket.on('console-output', (data) => {
-    term.write(data);
+    appendConsole(data);
 });
 
 socket.on('console-history', (history) => {
-    term.write(history);
+    if (consoleOutput) {
+        consoleOutput.textContent = history;
+        autoScroll();
+    }
 });
 
 socket.on('server-status', (status) => {
@@ -99,22 +108,79 @@ socket.on('schedule-status', (scheduled) => {
     updateScheduleUI();
 });
 
+socket.on('player-list-update', (data) => {
+    updatePlayerList(data.players, data.count, data.maxPlayers);
+});
 
 
 
 
-// Terminal Input
-term.onData((data) => {
-    // Ignore Ctrl+C (ETX - End of Text) to prevent stopping the server
-    if (data === '\u0003') {
+
+// Command Input Handling
+window.sendCommand = function sendCommand() {
+    // Get fresh reference to input element
+    const input = document.getElementById('commandInput') || commandInput;
+    if (!input) {
+        console.error('Command input not found');
+        return;
+    }
+    
+    const command = input.value.trim();
+    if (!command) {
         return;
     }
 
+    console.log('Sending command:', command);
+
+    // Send command to server (add \r for line ending as MC servers expect)
     socket.emit('server-command', {
         serverName: serverNameManager,
-        command: data
+        command: command + '\r'
     });
-});
+
+    // Clear input and refocus for next command
+    input.value = '';
+    input.focus();
+};
+
+// Set up command input event listeners
+function setupCommandInput() {
+    const input = document.getElementById('commandInput');
+    if (!input) {
+        console.error('Command input element not found');
+        return;
+    }
+    
+    // Remove any disabled/readonly attributes
+    input.removeAttribute('disabled');
+    input.removeAttribute('readonly');
+    input.setAttribute('tabindex', '0');
+    
+    // Allow Enter key to send command
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendCommand();
+        }
+    });
+    
+    // Focus input when clicking in the console area
+    if (consoleOutput) {
+        consoleOutput.addEventListener('click', () => {
+            setTimeout(() => input.focus(), 100);
+        });
+    }
+}
+
+// Initialize command input setup
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        initDOMElements();
+        setupCommandInput();
+    });
+} else {
+    setupCommandInput();
+}
 
 // Controls (Attached to window for onclick in HTML)
 window.startServer = function () {
@@ -129,7 +195,7 @@ window.stopServer = function () {
 
 window.restartServer = function () {
     socket.emit('server-stop', serverNameManager);
-    term.write('\r\n\x1b[33mScheduling restart in 5 seconds...\x1b[0m\r\n');
+    appendConsole('\nScheduling restart in 5 seconds...\n');
     setTimeout(() => {
         socket.emit('server-start', serverNameManager);
     }, 5000);
@@ -184,24 +250,81 @@ function updateStatus(status) {
         scheduleRestartBtn.disabled = true;
         isRestartScheduled = false; // Reset local state
         updateScheduleUI();
+        
+        // Clear player list when server goes offline
+        updatePlayerList([], 0, 0);
 
     } else if (status === 'starting') {
         startBtn.disabled = true;
         stopBtn.disabled = false; // Allow stop while starting (abort)
         restartBtn.disabled = true;
         scheduleRestartBtn.disabled = true;
+        
+        // Clear player list when server is starting
+        updatePlayerList([], 0, 0);
     }
 }
 
 // Initial status
 updateStatus('offline');
 
-// Refit when tab is switched 
+// ===== Player List Management =====
+
+function updatePlayerList(players, count, maxPlayers) {
+    const container = document.getElementById('playerListContainer');
+    const countBadge = document.getElementById('playerCount');
+    
+    if (!container || !countBadge) return;
+    
+    // Update count badge
+    const maxDisplay = maxPlayers > 0 ? maxPlayers : '?';
+    countBadge.textContent = `${count}/${maxDisplay}`;
+    
+    // Clear container
+    container.innerHTML = '';
+    
+    if (players && players.length > 0) {
+        // Create player list
+        const playerList = document.createElement('div');
+        playerList.className = 'current-players-list';
+        
+        players.forEach(playerName => {
+            const playerItem = document.createElement('div');
+            playerItem.className = 'current-player-item';
+            playerItem.innerHTML = `
+                <i class="fas fa-user"></i>
+                <span>${playerName}</span>
+            `;
+            playerList.appendChild(playerItem);
+        });
+        
+        container.appendChild(playerList);
+    } else {
+        // Show "no players" message
+        const noPlayers = document.createElement('p');
+        noPlayers.className = 'no-players-text';
+        noPlayers.textContent = 'No players online';
+        container.appendChild(noPlayers);
+    }
+}
+
+// Initialize with empty player list
+updatePlayerList([], 0, 0);
+
+// Handle tab switching
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         const tab = btn.dataset.tab;
         if (tab === 'console') {
-            setTimeout(() => fitTerminal(), 100);
+            // Auto-scroll console when switching back to it
+            setTimeout(() => {
+                autoScroll();
+                // Focus command input for better UX
+                const input = document.getElementById('commandInput');
+                if (input) {
+                    input.focus();
+                }
+            }, 100);
         } else if (tab === 'settings') {
             loadSettings();
         } else if (tab === 'players') {
@@ -211,6 +334,27 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         }
     });
 });
+
+// Focus command input when page loads if console tab is active
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        const consoleTab = document.querySelector('[data-tab="console"]');
+        if (consoleTab && consoleTab.classList.contains('active')) {
+            setTimeout(() => {
+                const input = document.getElementById('commandInput');
+                if (input) input.focus();
+            }, 300);
+        }
+    });
+} else {
+    const consoleTab = document.querySelector('[data-tab="console"]');
+    if (consoleTab && consoleTab.classList.contains('active')) {
+        setTimeout(() => {
+            const input = document.getElementById('commandInput');
+            if (input) input.focus();
+        }, 300);
+    }
+}
 
 // ===== Settings Logic =====
 

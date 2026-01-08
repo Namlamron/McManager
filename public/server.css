@@ -375,19 +375,157 @@
     border: 1px solid #f59e0b;
 }
 
-.terminal-container {
+.console-output {
     height: 500px;
     background: #000;
     border-radius: 0.5rem;
-    padding: 0.5rem;
+    padding: 1rem;
     border: 1px solid var(--border);
-    overflow: hidden;
-    /* Fix weird half-lines in xterm.js */
-    line-height: normal !important;
+    overflow-y: auto;
+    overflow-x: auto;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #f0f0f0;
+    white-space: pre;
+    word-wrap: normal;
+    overflow-wrap: normal;
 }
 
-.terminal-container .xterm-screen {
-    padding: 5px;
+.console-output::-webkit-scrollbar {
+    width: 10px;
+}
+
+.console-output::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 5px;
+}
+
+.console-output::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+}
+
+.console-output::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Command Input */
+.command-input-container {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    margin-bottom: 1.5rem;
+    align-items: center;
+}
+
+.command-input {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    color: var(--text-primary);
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+    transition: border-color 0.2s;
+    min-width: 0;
+}
+
+.command-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.command-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.command-input-container .btn-primary {
+    flex-shrink: 0;
+    width: auto !important;
+    padding: 0.875rem 1.5rem;
+    white-space: nowrap;
+    min-width: auto;
+    font-size: 0.9rem;
+}
+
+/* Current Players Section */
+.current-players-section {
+    margin-top: 1.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.players-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+}
+
+.players-section-title i {
+    color: var(--accent-primary);
+}
+
+.player-count-badge {
+    margin-left: auto;
+    background: rgba(139, 92, 246, 0.15);
+    color: var(--accent-primary);
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.player-list-container {
+    min-height: 60px;
+}
+
+.current-players-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.current-player-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+}
+
+.current-player-item:hover {
+    border-color: var(--accent-primary);
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.current-player-item i {
+    color: var(--accent-primary);
+    font-size: 0.9rem;
+}
+
+.current-player-item span {
+    font-weight: 500;
+}
+
+.no-players-text {
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: 1rem;
+    margin: 0;
 }
 
 /* Drag and Drop */

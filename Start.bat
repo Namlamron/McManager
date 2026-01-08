@@ -17,11 +17,6 @@ echo Checking dependencies...
 call npm install
 echo.
 
-echo Web Interface: http://localhost:3000
-echo.
-echo Press Ctrl+C to stop the server
-echo.
-
 node server.js
 
 if %errorlevel% equ 42 (

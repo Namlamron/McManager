@@ -592,24 +592,14 @@ app.post('/api/system/restart', async (req, res) => {
     }
   }
 
-  // 2. Stop all servers
-  console.log('🛑 Stopping all servers for restart...');
-  for (const [name, ptyProc] of activeServers.entries()) {
-    try {
-      ptyProc.write('stop\r');
-    } catch (e) {
-      console.error(`Error stopping ${name}:`, e);
-    }
-  }
-
-  // 3. Send success response
+  // 2. Send success response immediately (before shutdown starts)
   res.json({ success: true, message: 'Restarting...' });
 
-  // 4. Exit process (give time for stop commands to send)
-  setTimeout(() => {
-    console.log('👋 Exiting process for PM2 restart.');
-    process.exit(0);
-  }, 2000);
+  // 3. Shut down all servers gracefully, then exit
+  // Use a small delay to ensure response is sent
+  setTimeout(async () => {
+    await shutdownAllServers(0);
+  }, 100);
 });
 
 // ===== Server Process Management =====
@@ -887,6 +877,14 @@ async function startServerProcess(serverName) {
     io.to(serverName).emit('console-output', `\r\nServer stopped with exit code: ${res.exitCode}\r\n`);
     io.to(serverName).emit('server-status', 'offline');
 
+    // Notify shutdown handler if we're shutting down
+    const shutdownResolver = shutdownResolvers.get(serverName);
+    if (shutdownResolver) {
+      console.log(`  ✅ Server ${serverName} stopped (exit code: ${res.exitCode})`);
+      shutdownResolvers.delete(serverName);
+      shutdownResolver();
+    }
+
     // Send Discord webhook notification for server stop/crash
     fs.readJson(configPath).then(config => {
       if (config.webhookUrl) {
@@ -894,8 +892,8 @@ async function startServerProcess(serverName) {
       }
     }).catch(() => { });
 
-    // Auto-restart if pending
-    if (restartPending.has(serverName)) {
+    // Auto-restart if pending (but not during shutdown)
+    if (!isShuttingDown && restartPending.has(serverName)) {
       restartPending.delete(serverName);
       io.to(serverName).emit('console-output', `\r\n[Auto-Restart] Server restarting...\r\n`);
       setTimeout(() => {
@@ -1240,12 +1238,151 @@ setInterval(async () => {
 }, 5000); // Every 5 seconds
 
 // Update Endpoint
-app.post('/api/update', (req, res) => {
+app.post('/api/update', async (req, res) => {
   res.json({ success: true, message: 'Updating and restarting...' });
   console.log('🔄 Update requested. Restarting process...');
+  
+  // Shut down all servers gracefully, then exit with code 42 to trigger Start.bat loop
+  setTimeout(async () => {
+    await shutdownAllServers(42);
+  }, 100);
+});
+
+// ===== Graceful Shutdown Handler =====
+
+let isShuttingDown = false;
+const shutdownResolvers = new Map(); // serverName -> resolve function
+
+async function shutdownAllServers(exitCode = 0) {
+  if (isShuttingDown) {
+    return; // Prevent multiple shutdown attempts
+  }
+  isShuttingDown = true;
+
+  // Prevent auto-restarts during shutdown
+  restartPending.clear();
+  scheduledRestarts.clear();
+
+  const runningServers = Array.from(activeServers.keys());
+  
+  if (runningServers.length === 0) {
+    console.log('🛑 No servers running. Exiting...');
+    server.close(() => {
+      process.exit(exitCode);
+    });
+    return;
+  }
+
+  console.log(`\n🛑 Shutting down ${runningServers.length} server(s)...`);
+  
+  // Track which servers have shut down
+  const shutdownPromises = [];
+  const shutdownTimeouts = new Map();
+
+  for (const [serverName, ptyProcess] of activeServers.entries()) {
+    console.log(`  ⏳ Stopping server: ${serverName}`);
+    
+    // Create a promise that resolves when the server exits
+    const shutdownPromise = new Promise((resolve) => {
+      shutdownResolvers.set(serverName, resolve);
+
+      // Set up a timeout (30 seconds) to force kill if server doesn't respond
+      const timeout = setTimeout(() => {
+        console.log(`  ⚠️  Server ${serverName} did not shut down gracefully. Force killing...`);
+        try {
+          // Force kill the process
+          if (os.platform() === 'win32') {
+            exec(`taskkill /F /T /PID ${ptyProcess.pid}`, (error) => {
+              if (error) {
+                console.error(`  ❌ Failed to force kill ${serverName}:`, error.message);
+              } else {
+                console.log(`  ✅ Force killed ${serverName}`);
+              }
+              shutdownResolvers.delete(serverName);
+              resolve();
+            });
+          } else {
+            process.kill(ptyProcess.pid, 'SIGKILL');
+            console.log(`  ✅ Force killed ${serverName}`);
+            shutdownResolvers.delete(serverName);
+            resolve();
+          }
+        } catch (e) {
+          console.error(`  ❌ Error force killing ${serverName}:`, e.message);
+          shutdownResolvers.delete(serverName);
+          resolve();
+        }
+      }, 30000); // 30 second timeout
+
+      shutdownTimeouts.set(serverName, timeout);
+    });
+
+    shutdownPromises.push(shutdownPromise);
+
+    // Send stop command
+    try {
+      ptyProcess.write('stop\r');
+      io.to(serverName).emit('console-output', '\r\n[System] Server shutdown initiated...\r\n');
+    } catch (e) {
+      console.error(`  ❌ Error sending stop command to ${serverName}:`, e.message);
+      // If we can't send the command, resolve immediately
+      const resolver = shutdownResolvers.get(serverName);
+      if (resolver) {
+        shutdownResolvers.delete(serverName);
+        resolver();
+      }
+    }
+  }
+
+  // Wait for all servers to shut down (or timeout)
+  try {
+    await Promise.all(shutdownPromises);
+    console.log('✅ All servers shut down successfully.\n');
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+  }
+
+  // Close HTTP server
+  server.close(() => {
+    console.log('👋 HTTP server closed. Exiting...');
+    process.exit(exitCode);
+  });
+
+  // Force exit after 35 seconds total (in case server.close hangs)
   setTimeout(() => {
-    process.exit(42); // Exit with code 42 to trigger Start.bat loop
-  }, 1000);
+    console.log('⚠️  Forcing exit after timeout...');
+    process.exit(exitCode);
+  }, 35000);
+}
+
+// Handle process termination signals
+process.on('SIGTERM', () => {
+  console.log('\n📨 Received SIGTERM signal');
+  shutdownAllServers(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('\n📨 Received SIGINT signal (Ctrl+C)');
+  shutdownAllServers(0);
+});
+
+// Windows doesn't support SIGTERM, so handle SIGHUP as well
+if (os.platform() === 'win32') {
+  process.on('SIGHUP', () => {
+    console.log('\n📨 Received SIGHUP signal');
+    shutdownAllServers(0);
+  });
+}
+
+// Handle uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  shutdownAllServers(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit on unhandled rejection, but log it
 });
 
 // Start server

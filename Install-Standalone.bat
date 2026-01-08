@@ -8,10 +8,10 @@ echo   McManager - Standalone Installer
 echo ========================================
 echo.
 echo This installer will:
-echo   1. Clone the McManager repository
-echo   2. Install all dependencies
-echo   3. Set up PM2 (optional)
-echo   4. Configure the application
+echo   1. Check prerequisites (Node.js ^& Git)
+echo   2. Clone the McManager repository
+echo   3. Install dependencies
+echo   4. Configure environment
 echo   5. Start the server
 echo.
 
@@ -25,7 +25,7 @@ pause
 
 REM ===== Check Prerequisites =====
 echo.
-echo [1/6] Checking prerequisites...
+echo [1/5] Checking prerequisites...
 echo.
 
 REM Check Node.js
@@ -61,7 +61,7 @@ echo Prerequisites check passed!
 
 REM ===== Clone Repository =====
 echo.
-echo [2/6] Cloning McManager repository...
+echo [2/5] Cloning McManager repository...
 echo.
 
 if exist "%INSTALL_DIR%" (
@@ -100,7 +100,7 @@ cd %INSTALL_DIR%
 
 REM ===== Install Dependencies =====
 echo.
-echo [3/6] Installing dependencies...
+echo [3/5] Installing dependencies...
 echo This may take a few minutes...
 echo.
 
@@ -115,40 +115,11 @@ if %errorlevel% neq 0 (
 
 echo Dependencies installed successfully!
 
-REM ===== Install PM2 =====
-echo.
-echo [4/6] PM2 Process Manager (Recommended)
-echo.
-echo PM2 provides:
-echo   - Auto-restart on crashes
-echo   - Auto-updates from Git
-echo   - Log management
-echo   - Start on boot
-echo.
 
-where pm2 >nul 2>nul
-if %errorlevel% equ 0 (
-    echo PM2 is already installed!
-    pm2 --version
-) else (
-    choice /C YN /N /M "Install PM2 globally? [Y/N] "
-    if errorlevel 2 (
-        echo Skipping PM2 installation.
-    ) else (
-        echo Installing PM2...
-        call npm install -g pm2
-        if %errorlevel% neq 0 (
-            echo WARNING: Failed to install PM2.
-            echo You can install it later with: npm install -g pm2
-        ) else (
-            echo PM2 installed successfully!
-        )
-    )
-)
 
 REM ===== Configure Environment =====
 echo.
-echo [5/6] Configuring environment...
+echo [4/5] Configuring environment...
 echo.
 
 if exist .env.example (
@@ -161,7 +132,7 @@ if exist .env.example (
 
 REM ===== Start Server =====
 echo.
-echo [6/6] Starting McManager...
+echo [5/5] Starting McManager...
 echo.
 
 choice /C YN /N /M "Start McManager now? [Y/N] "
@@ -196,18 +167,7 @@ echo   - docs\DEPLOYMENT.md
 echo   - docs\QUICK-REFERENCE.md
 echo.
 
-where pm2 >nul 2>nul
-if %errorlevel% equ 0 (
-    echo PM2 is installed! Your server will:
-    echo   - Auto-restart on crashes
-    echo   - Auto-update when you push to Git
-    echo.
-    echo Useful commands:
-    echo   pm2 status      - View running processes
-    echo   pm2 logs        - View live logs
-    echo   pm2 stop all    - Stop all services
-    echo.
-)
+
 
 echo.
 pause

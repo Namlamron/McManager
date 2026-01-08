@@ -12,7 +12,7 @@ const http = require('http');
 const { Server } = require("socket.io");
 const pty = require('node-pty');
 const os = require('os');
-const pidusage = require('pidusage');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -613,6 +613,7 @@ app.post('/api/system/restart', async (req, res) => {
 // ===== Server Process Management =====
 
 const activeServers = new Map(); // serverName -> ptyProcess
+const serverLogs = new Map(); // serverName -> string[] (Circular buffer)
 
 const scheduledRestarts = new Set(); // Servers waiting for 0 players to restart
 const restartPending = new Set(); // Servers currently stopping that should restart immediately
@@ -836,6 +837,14 @@ async function startServerProcess(serverName) {
   io.to(serverName).emit('server-status', 'online');
 
   ptyProcess.onData((data) => {
+    // Store log history
+    if (!serverLogs.has(serverName)) {
+      serverLogs.set(serverName, []);
+    }
+    const logs = serverLogs.get(serverName);
+    logs.push(data);
+    if (logs.length > 2000) logs.shift(); // Keep last 2000 chunks
+
     io.to(serverName).emit('console-output', data);
   });
 
@@ -872,6 +881,14 @@ io.on('connection', (socket) => {
 
     // Send schedule status
     socket.emit('schedule-status', scheduledRestarts.has(serverName));
+
+    // Send console history
+    const history = serverLogs.get(serverName) || [];
+    // Join chunks to reduce socket messages, or send as array?
+    // Sending as one big string is efficient for xterm write.
+    if (history.length > 0) {
+      socket.emit('console-history', history.join(''));
+    }
   });
 
   socket.on('server-start', async (serverName) => {

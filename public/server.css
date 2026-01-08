@@ -382,6 +382,12 @@
     padding: 0.5rem;
     border: 1px solid var(--border);
     overflow: hidden;
+    /* Fix weird half-lines in xterm.js */
+    line-height: normal !important;
+}
+
+.terminal-container .xterm-screen {
+    padding: 5px;
 }
 
 /* Drag and Drop */
